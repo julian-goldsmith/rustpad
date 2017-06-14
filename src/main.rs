@@ -135,7 +135,7 @@ fn create_toolbar(parent_hwnd: HWND) -> HWND {
 	};
 	
 	let tbab = TBADDBITMAP {
-		hInst: HINST_COMMCTRL,
+		hInst: 0xffffffffffffffff as HINSTANCE,//HINST_COMMCTRL,
 		nID: IDB_STD_SMALL_COLOR,
 	};
 	
