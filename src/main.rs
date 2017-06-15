@@ -43,6 +43,7 @@ unsafe fn resize(hwnd: HWND) {
 	let status = GetDlgItem(hwnd, IDC_MAIN_STATUS);
 	
 	SendMessageW(tool, TB_AUTOSIZE, 0, 0);
+	SendMessageW(status, WM_SIZE, 0, 0);
 	
 	let mut tool_rect: RECT = mem::uninitialized();
 	GetWindowRect(tool, &mut tool_rect);
@@ -146,7 +147,7 @@ fn create_toolbar(parent_hwnd: HWND) -> HWND {
 	let tbb: [TBBUTTON; 1] = [
 		TBBUTTON {
 			iBitmap: STD_FILENEW,
-			idCommand: 9001,
+			idCommand: ID_FILE_EXIT,
 			fsState: TBSTATE_ENABLED,
 			fsStyle: TBSTYLE_BUTTON as u8,
 			bReserved: [0; 6],
@@ -163,29 +164,41 @@ fn create_toolbar(parent_hwnd: HWND) -> HWND {
 }
 
 fn create_menu(parent_hwnd: HWND) {
-	unsafe {
+	let exit_string: Vec<u16> = OsStr::new("E&xit").encode_wide().chain(once(0)).collect();
+	let file_string: Vec<u16> = OsStr::new("&File").encode_wide().chain(once(0)).collect();
+	
+	let menu = unsafe {
 		let menu = CreateMenu();
-		
-		let exit_string: Vec<u16> = OsStr::new("E&xit").encode_wide().chain(once(0)).collect();
-		let file_string: Vec<u16> = OsStr::new("&File").encode_wide().chain(once(0)).collect();
 		
 		let sub_menu = CreatePopupMenu();
 		AppendMenuW(sub_menu, MF_STRING, ID_FILE_EXIT as u64, exit_string.as_ptr());
 		AppendMenuW(menu, MF_STRING | MF_POPUP, sub_menu as u64, file_string.as_ptr());
 		
 		SetMenu(parent_hwnd, menu);
+		
+		menu
+	};
+	
+	if menu == ptr::null_mut() {
+		panic!("Couldn't create menu");
 	};
 }
 
 fn create_status(parent_hwnd: HWND) -> HWND {
-	unsafe {
-		let statusbar_class: Vec<u16> = OsStr::new("msctls_statusbar").encode_wide().chain(once(0)).collect();
-		let instance = get_current_instance_handle();
-		let status = CreateWindowExW(0, statusbar_class.as_ptr(), ptr::null_mut(),
+	let statusbar_class: Vec<u16> = OsStr::new("msctls_statusbar32").encode_wide().chain(once(0)).collect();
+	let instance = get_current_instance_handle();
+		
+	let status = unsafe {
+		CreateWindowExW(0, statusbar_class.as_ptr(), ptr::null_mut(),
 			WS_CHILD | WS_VISIBLE | SBARS_SIZEGRIP, 0, 0, 0, 0,
-			parent_hwnd, IDC_MAIN_STATUS as HMENU, instance, ptr::null_mut());
-		status
-	}
+			parent_hwnd, IDC_MAIN_STATUS as HMENU, instance, ptr::null_mut())
+	};
+	
+	if status == ptr::null_mut() {
+		panic!("Couldn't create status");
+	};
+	
+	status
 }
 
 fn populate_window(hwnd: HWND) {
