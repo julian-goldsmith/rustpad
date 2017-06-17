@@ -1,15 +1,22 @@
 extern crate comctl32;
-extern crate winapi;
-extern crate user32;
-extern crate kernel32;
+extern crate comrak;
 extern crate gdi32;
+extern crate kernel32;
+extern crate typed_arena;
+extern crate user32;
+extern crate winapi;
+
+use comrak::{parse_document, ComrakOptions};
+use comrak::nodes::{AstNode, NodeValue};
 use std::ffi::OsStr;
-use std::iter::once;
+use std::iter::{once,repeat};
+use std::mem;
 use std::os::windows::ffi::OsStrExt;
 use std::ptr;
-use std::mem;
+use typed_arena::Arena;
 use user32::*;
 use winapi::*;
+use kernel32::LoadLibraryW;
 
 const IDC_EDIT: i32 = 101;
 const IDC_TOOLBAR: i32 = 102;
@@ -58,8 +65,8 @@ unsafe fn resize(hwnd: HWND) {
 	SetWindowPos(edit, ptr::null_mut(), 0, tool_height, rect.right, edit_height, SWP_NOZORDER);
 }
 
-fn register_window_class(h_instance: HINSTANCE, class_name: &Vec<u16>) {
-	unsafe {
+fn register_window_class(h_instance: HINSTANCE, class_name: &Vec<u16>) -> ATOM {
+	let atom = unsafe {
 		let wc = WNDCLASSEXW {
 			cbSize: mem::size_of::<WNDCLASSEXW>() as UINT,
 			style: 0,
@@ -75,10 +82,14 @@ fn register_window_class(h_instance: HINSTANCE, class_name: &Vec<u16>) {
 			hIconSm: LoadIconW(ptr::null_mut(), IDI_APPLICATION),
 		};
 
-		if RegisterClassExW(&wc) == 0 {
-			panic!("Couldn't register class");
-		};
+		RegisterClassExW(&wc)
 	};
+	
+	if atom == 0 {
+		panic!("Couldn't register class");
+	};
+	
+	atom
 }
 
 fn create_window(h_instance: HINSTANCE, class_name: &Vec<u16>, window_title: &Vec<u16>) -> HWND {
@@ -96,13 +107,14 @@ fn create_window(h_instance: HINSTANCE, class_name: &Vec<u16>, window_title: &Ve
 }
 
 fn create_edit(parent_hwnd: HWND) -> HWND {
-	let edit: Vec<u16> = OsStr::new("EDIT").encode_wide().chain(once(0)).collect();
+	// richedit class: RichEdit20W
+	let edit: Vec<u16> = OsStr::new("RichEdit20W").encode_wide().chain(once(0)).collect();
 	let blank: Vec<u16> = OsStr::new("EDIT").encode_wide().chain(once(0)).collect();
 	let instance = get_current_instance_handle();
 	
 	let edit = unsafe {
 		CreateWindowExW(WS_EX_CLIENTEDGE, edit.as_ptr(), blank.as_ptr(),
-			WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_HSCROLL | ES_MULTILINE | ES_AUTOHSCROLL | ES_AUTOVSCROLL,
+			WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_HSCROLL | ES_MULTILINE | ES_AUTOHSCROLL | ES_AUTOVSCROLL | WS_BORDER | WS_TABSTOP,
 			0, 0, 100, 100, parent_hwnd, IDC_EDIT as HMENU, instance, ptr::null_mut())
 	};
 	
@@ -215,6 +227,37 @@ fn get_current_instance_handle() -> HINSTANCE {
 }
 
 fn main() {
+/*
+	let arena = Arena::new();
+
+	let root = parse_document(
+		&arena,
+		"This is my input.\n\n1. Also my input.\n2. Certainly my input.\n",
+		&ComrakOptions::default());
+
+	fn iter_nodes<'a, F>(node: &'a AstNode<'a>, f: &F, depth: usize) //'
+		where F : Fn(&'a AstNode<'a>) {
+		f(node);
+		let spaces: String = repeat(' ').take(depth * 2).collect();
+		println!("{}Node {:?}", &spaces, &node.data.borrow().value);
+		for c in node.children() {
+			iter_nodes(c, f, depth + 1);
+		}
+	}
+
+	iter_nodes(root, &|node| {
+		
+	}, 0);
+
+	return;
+*/
+
+	let richedit_dll: Vec<u16> = OsStr::new("Riched20.dll").encode_wide().chain(once(0)).collect();
+	
+	unsafe {
+		LoadLibraryW(richedit_dll.as_ptr());
+	};
+
 	let class_name: Vec<u16> = OsStr::new("myWindowClass").encode_wide().chain(once(0)).collect();
 	let window_title: Vec<u16> = OsStr::new("Test window").encode_wide().chain(once(0)).collect();
 	
