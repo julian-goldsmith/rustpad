@@ -6,6 +6,8 @@ extern crate typed_arena;
 extern crate user32;
 extern crate winapi;
 
+mod markdowneditcontrol;
+
 use comrak::{parse_document, ComrakOptions};
 use comrak::nodes::{AstNode, NodeValue};
 use std::ffi::OsStr;
@@ -107,24 +109,17 @@ fn create_window(h_instance: HINSTANCE, class_name: &Vec<u16>, window_title: &Ve
 }
 
 fn create_edit(parent_hwnd: HWND) -> HWND {
-	// richedit class: RichEdit20W
-	let edit: Vec<u16> = OsStr::new("RichEdit20W").encode_wide().chain(once(0)).collect();
-	let blank: Vec<u16> = OsStr::new("EDIT").encode_wide().chain(once(0)).collect();
+	let edit: Vec<u16> = OsStr::new(markdowneditcontrol::markdown_edit_class).encode_wide().chain(once(0)).collect();
 	let instance = get_current_instance_handle();
 	
 	let edit = unsafe {
-		CreateWindowExW(WS_EX_CLIENTEDGE, edit.as_ptr(), blank.as_ptr(),
-			WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_HSCROLL | ES_MULTILINE | ES_AUTOHSCROLL | ES_AUTOVSCROLL | WS_BORDER | WS_TABSTOP,
+		CreateWindowExW(WS_EX_CLIENTEDGE, edit.as_ptr(), ptr::null_mut(),
+			WS_CHILD | WS_VISIBLE,
 			0, 0, 100, 100, parent_hwnd, IDC_EDIT as HMENU, instance, ptr::null_mut())
 	};
 	
 	if edit == ptr::null_mut() {
 		panic!("Couldn't create edit");
-	};
-	
-	unsafe {
-		let default_font = gdi32::GetStockObject(DEFAULT_GUI_FONT);
-		SendMessageW(edit, WM_SETFONT, default_font as WPARAM, 0);
 	};
 	
 	edit
@@ -148,7 +143,7 @@ fn create_toolbar(parent_hwnd: HWND) -> HWND {
 	};
 	
 	let tbab = TBADDBITMAP {
-		hInst: 0xffffffffffffffff as HINSTANCE,//HINST_COMMCTRL,
+		hInst: -1 as i64 as HINSTANCE,//HINST_COMMCTRL,
 		nID: IDB_STD_SMALL_COLOR,
 	};
 	
@@ -265,6 +260,8 @@ fn main() {
 		comctl32::InitCommonControls();
 	};
 	
+	markdowneditcontrol::register();
+	
 	let h_instance = get_current_instance_handle();
 	
 	register_window_class(h_instance, &class_name);
@@ -283,4 +280,7 @@ fn main() {
 			DispatchMessageW(&msg);
 		};
 	};
+	
+	
+	markdowneditcontrol::unregister();
 }
