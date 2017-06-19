@@ -8,14 +8,11 @@ extern crate winapi;
 
 mod markdowneditcontrol;
 
-use comrak::{parse_document, ComrakOptions};
-use comrak::nodes::{AstNode, NodeValue};
 use std::ffi::OsStr;
-use std::iter::{once,repeat};
+use std::iter::once;
 use std::mem;
 use std::os::windows::ffi::OsStrExt;
 use std::ptr;
-use typed_arena::Arena;
 use user32::*;
 use winapi::*;
 use kernel32::LoadLibraryW;
@@ -109,12 +106,13 @@ fn create_window(h_instance: HINSTANCE, class_name: &Vec<u16>, window_title: &Ve
 }
 
 fn create_edit(parent_hwnd: HWND) -> HWND {
-	let edit: Vec<u16> = OsStr::new(markdowneditcontrol::markdown_edit_class).encode_wide().chain(once(0)).collect();
+	let edit: Vec<u16> = OsStr::new("EDIT").encode_wide().chain(once(0)).collect();
+	let blank: Vec<u16> = OsStr::new("").encode_wide().chain(once(0)).collect();
 	let instance = get_current_instance_handle();
 	
 	let edit = unsafe {
-		CreateWindowExW(WS_EX_CLIENTEDGE, edit.as_ptr(), ptr::null_mut(),
-			WS_CHILD | WS_VISIBLE,
+		CreateWindowExW(WS_EX_CLIENTEDGE, edit.as_ptr(), blank.as_ptr(),
+			WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_HSCROLL | ES_MULTILINE | ES_AUTOHSCROLL | ES_AUTOVSCROLL | WS_BORDER | WS_TABSTOP,
 			0, 0, 100, 100, parent_hwnd, IDC_EDIT as HMENU, instance, ptr::null_mut())
 	};
 	
