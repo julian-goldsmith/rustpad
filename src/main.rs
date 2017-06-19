@@ -1,12 +1,8 @@
 extern crate comctl32;
-extern crate comrak;
 extern crate gdi32;
 extern crate kernel32;
-extern crate typed_arena;
 extern crate user32;
 extern crate winapi;
-
-mod markdowneditcontrol;
 
 use std::ffi::OsStr;
 use std::iter::once;
@@ -15,7 +11,6 @@ use std::os::windows::ffi::OsStrExt;
 use std::ptr;
 use user32::*;
 use winapi::*;
-use kernel32::LoadLibraryW;
 
 const IDC_EDIT: i32 = 101;
 const IDC_TOOLBAR: i32 = 102;
@@ -31,7 +26,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: UINT, w_param: WPARAM, l_para
 		WM_SIZE => { resize(hwnd); },
 		WM_COMMAND => {
 			match LOWORD(w_param as u32) as i32 {
-				ID_FILE_EXIT=> PostMessageW(hwnd, WM_CLOSE, 0, 0),
+				ID_FILE_EXIT => PostMessageW(hwnd, WM_CLOSE, 0, 0),
 				_ => 0,
 			};
 		},
@@ -91,28 +86,28 @@ fn register_window_class(h_instance: HINSTANCE, class_name: &Vec<u16>) -> ATOM {
 	atom
 }
 
-fn create_window(h_instance: HINSTANCE, class_name: &Vec<u16>, window_title: &Vec<u16>) -> HWND {
+fn create_window(instance: HINSTANCE, class_name: &Vec<u16>, window_title: &Vec<u16>) -> HWND {
 	let hwnd = unsafe {
 		CreateWindowExW(
 			0, class_name.as_ptr(), window_title.as_ptr(),
 			WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, CW_USEDEFAULT, CW_USEDEFAULT, 480, 320,
-			ptr::null_mut(), ptr::null_mut(), h_instance, ptr::null_mut())
+			ptr::null_mut(), ptr::null_mut(), instance, ptr::null_mut())
 	};
 		
 	if hwnd == ptr::null_mut() {
 		panic!("Couldn't create window");
 	};
+	
 	hwnd
 }
 
-fn create_edit(parent_hwnd: HWND) -> HWND {
+fn create_edit(instance: HINSTANCE, parent_hwnd: HWND) -> HWND {
 	let edit: Vec<u16> = OsStr::new("EDIT").encode_wide().chain(once(0)).collect();
 	let blank: Vec<u16> = OsStr::new("").encode_wide().chain(once(0)).collect();
-	let instance = get_current_instance_handle();
 	
 	let edit = unsafe {
 		CreateWindowExW(WS_EX_CLIENTEDGE, edit.as_ptr(), blank.as_ptr(),
-			WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_HSCROLL | ES_MULTILINE | ES_AUTOHSCROLL | ES_AUTOVSCROLL | WS_BORDER | WS_TABSTOP,
+			WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL | WS_BORDER | WS_TABSTOP,
 			0, 0, 100, 100, parent_hwnd, IDC_EDIT as HMENU, instance, ptr::null_mut())
 	};
 	
@@ -123,8 +118,7 @@ fn create_edit(parent_hwnd: HWND) -> HWND {
 	edit
 }
 
-fn create_toolbar(parent_hwnd: HWND) -> HWND {
-	let instance = get_current_instance_handle();
+fn create_toolbar(instance: HINSTANCE, parent_hwnd: HWND) -> HWND {
 	let toolbar_name: Vec<u16> = OsStr::new("ToolbarWindow32").encode_wide().chain(once(0)).collect();
 	
 	let toolbar = unsafe {
@@ -189,9 +183,8 @@ fn create_menu(parent_hwnd: HWND) {
 	};
 }
 
-fn create_status(parent_hwnd: HWND) -> HWND {
+fn create_status(instance: HINSTANCE, parent_hwnd: HWND) -> HWND {
 	let statusbar_class: Vec<u16> = OsStr::new("msctls_statusbar32").encode_wide().chain(once(0)).collect();
-	let instance = get_current_instance_handle();
 		
 	let status = unsafe {
 		CreateWindowExW(0, statusbar_class.as_ptr(), ptr::null_mut(),
@@ -207,10 +200,12 @@ fn create_status(parent_hwnd: HWND) -> HWND {
 }
 
 fn populate_window(hwnd: HWND) {
+	let instance = get_current_instance_handle();
+	
 	create_menu(hwnd);
-	create_edit(hwnd);
-	create_toolbar(hwnd);
-	create_status(hwnd);
+	create_edit(instance, hwnd);
+	create_toolbar(instance, hwnd);
+	create_status(instance, hwnd);
 }
 
 fn get_current_instance_handle() -> HINSTANCE {
@@ -220,37 +215,6 @@ fn get_current_instance_handle() -> HINSTANCE {
 }
 
 fn main() {
-/*
-	let arena = Arena::new();
-
-	let root = parse_document(
-		&arena,
-		"This is my input.\n\n1. Also my input.\n2. Certainly my input.\n",
-		&ComrakOptions::default());
-
-	fn iter_nodes<'a, F>(node: &'a AstNode<'a>, f: &F, depth: usize) //'
-		where F : Fn(&'a AstNode<'a>) {
-		f(node);
-		let spaces: String = repeat(' ').take(depth * 2).collect();
-		println!("{}Node {:?}", &spaces, &node.data.borrow().value);
-		for c in node.children() {
-			iter_nodes(c, f, depth + 1);
-		}
-	}
-
-	iter_nodes(root, &|node| {
-		
-	}, 0);
-
-	return;
-*/
-
-	let richedit_dll: Vec<u16> = OsStr::new("Riched20.dll").encode_wide().chain(once(0)).collect();
-	
-	unsafe {
-		LoadLibraryW(richedit_dll.as_ptr());
-	};
-
 	let class_name: Vec<u16> = OsStr::new("myWindowClass").encode_wide().chain(once(0)).collect();
 	let window_title: Vec<u16> = OsStr::new("Test window").encode_wide().chain(once(0)).collect();
 	
@@ -258,13 +222,11 @@ fn main() {
 		comctl32::InitCommonControls();
 	};
 	
-	markdowneditcontrol::register();
+	let instance = get_current_instance_handle();
 	
-	let h_instance = get_current_instance_handle();
+	register_window_class(instance, &class_name);
 	
-	register_window_class(h_instance, &class_name);
-	
-	let hwnd = create_window(h_instance, &class_name, &window_title);
+	let hwnd = create_window(instance, &class_name, &window_title);
 	
 	unsafe {	
 		ShowWindow(hwnd, SW_SHOW);
@@ -278,7 +240,4 @@ fn main() {
 			DispatchMessageW(&msg);
 		};
 	};
-	
-	
-	markdowneditcontrol::unregister();
 }
