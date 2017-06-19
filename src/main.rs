@@ -11,6 +11,7 @@ use std::os::windows::ffi::OsStrExt;
 use std::ptr;
 use user32::*;
 use winapi::*;
+use gdi32::*;
 
 const IDC_EDIT: i32 = 101;
 const IDC_TOOLBAR: i32 = 102;
@@ -30,7 +31,9 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: UINT, w_param: WPARAM, l_para
 				_ => 0,
 			};
 		},
-		_ => { return DefWindowProcW(hwnd, msg, w_param, l_param); },
+		_ => { 
+			return DefWindowProcW(hwnd, msg, w_param, l_param); 
+		},
 	};
 	0
 }
@@ -102,17 +105,25 @@ fn create_window(instance: HINSTANCE, class_name: &Vec<u16>, window_title: &Vec<
 }
 
 fn create_edit(instance: HINSTANCE, parent_hwnd: HWND) -> HWND {
-	let edit: Vec<u16> = OsStr::new("EDIT").encode_wide().chain(once(0)).collect();
+	let edit_class: Vec<u16> = OsStr::new("EDIT").encode_wide().chain(once(0)).collect();
 	let blank: Vec<u16> = OsStr::new("").encode_wide().chain(once(0)).collect();
 	
 	let edit = unsafe {
-		CreateWindowExW(WS_EX_CLIENTEDGE, edit.as_ptr(), blank.as_ptr(),
-			WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL | WS_BORDER | WS_TABSTOP,
-			0, 0, 100, 100, parent_hwnd, IDC_EDIT as HMENU, instance, ptr::null_mut())
+		CreateWindowExW(WS_EX_CLIENTEDGE, edit_class.as_ptr(), blank.as_ptr(),
+			WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL,
+			CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, 
+			parent_hwnd, IDC_EDIT as HMENU, instance, ptr::null_mut())
 	};
 	
 	if edit == ptr::null_mut() {
 		panic!("Couldn't create edit");
+	};
+	
+	unsafe {
+		let font = GetStockObject(DEFAULT_GUI_FONT) as HFONT;
+		SendMessageW(edit, WM_SETFONT, font as WPARAM, 0);
+	
+		SendMessageW(edit, WM_SETTEXT, 0, blank.as_ptr() as LPARAM);
 	};
 	
 	edit
@@ -202,10 +213,10 @@ fn create_status(instance: HINSTANCE, parent_hwnd: HWND) -> HWND {
 fn populate_window(hwnd: HWND) {
 	let instance = get_current_instance_handle();
 	
-	create_menu(hwnd);
+	//create_menu(hwnd);
 	create_edit(instance, hwnd);
-	create_toolbar(instance, hwnd);
-	create_status(instance, hwnd);
+	//create_toolbar(instance, hwnd);
+	//create_status(instance, hwnd);
 }
 
 fn get_current_instance_handle() -> HINSTANCE {
