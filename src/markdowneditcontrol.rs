@@ -24,16 +24,20 @@ pub const markdown_edit_class: &str = "MDEdit";
 unsafe fn paint(hwnd: HWND) {
 	let class: Vec<u16> = OsStr::new("Hello, world").encode_wide().chain(once(0)).collect();
 	let mut ps: PAINTSTRUCT = mem::uninitialized();
-	let mut rect: RECT = mem::uninitialized();
+	let mut ctl_rect: RECT = mem::uninitialized();
+	let mut upd_rect: RECT = mem::uninitialized();
 	
-	GetClientRect(hwnd, &mut rect);
+	GetClientRect(hwnd, &mut ctl_rect);
+	GetUpdateRect(hwnd, &mut upd_rect, FALSE);
 	
 	let hdc = BeginPaint(hwnd, &mut ps);
-	Rectangle(hdc, rect.left, rect.top, rect.right, rect.bottom);
+	Rectangle(hdc, upd_rect.left, upd_rect.top, upd_rect.right, upd_rect.bottom);
 	SetTextColor(hdc, RGB(0, 0, 0));
 	SetBkMode(hdc, TRANSPARENT);
-	DrawTextW(hdc, class.as_ptr(), -1, &mut rect, DT_SINGLELINE | DT_CENTER | DT_VCENTER);
+	DrawTextW(hdc, class.as_ptr(), -1, &mut ctl_rect, DT_SINGLELINE | DT_CENTER | DT_VCENTER);
 	EndPaint(hwnd, &ps);
+	
+	ValidateRect(hwnd, &mut upd_rect);
 }
 
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: UINT, w_param: WPARAM, l_param: LPARAM) -> LRESULT {
