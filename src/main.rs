@@ -1,23 +1,35 @@
 extern crate comctl32;
+extern crate comdlg32;
 extern crate gdi32;
 extern crate kernel32;
 extern crate user32;
 extern crate winapi;
 
-use std::ffi::OsStr;
+use std::ffi::{OsStr,OsString};
 use std::iter::once;
 use std::mem;
-use std::os::windows::ffi::OsStrExt;
+use std::os::windows::ffi::{OsStrExt,OsStringExt};
 use std::ptr;
+use std::io::Read;
 use user32::*;
 use winapi::*;
 use gdi32::*;
+use comdlg32::*;
+use std::fs::File;
+use std::path::Path;
 
 const IDC_EDIT: i32 = 101;
 const IDC_TOOLBAR: i32 = 102;
 const IDC_MAIN_STATUS: i32 = 104;
 
 const ID_FILE_EXIT: i32 = 9001;
+const ID_FILE_NEW: i32 = 9002;
+const ID_FILE_OPEN: i32 = 9003;
+const ID_FILE_SAVEAS: i32 = 9004;
+
+fn convert_string(string: &str) -> Vec<u16> {
+	OsStr::new(string).encode_wide().chain(once(0)).collect()
+}
 
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: UINT, w_param: WPARAM, l_param: LPARAM) -> LRESULT {
 	match msg {
@@ -27,8 +39,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: UINT, w_param: WPARAM, l_para
 		WM_SIZE => { resize(hwnd); },
 		WM_COMMAND => {
 			match LOWORD(w_param as u32) as i32 {
-				ID_FILE_EXIT => PostMessageW(hwnd, WM_CLOSE, 0, 0),
-				_ => 0,
+				ID_FILE_EXIT => { PostMessageW(hwnd, WM_CLOSE, 0, 0); },
+				ID_FILE_NEW => clear_text(hwnd),
+				ID_FILE_OPEN => open_file(hwnd),
+				_ => (),
 			};
 		},
 		_ => { 
@@ -36,6 +50,44 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: UINT, w_param: WPARAM, l_para
 		},
 	};
 	0
+}
+
+unsafe fn open_file(parent_hwnd: HWND) {
+	let mut ofn: OPENFILENAMEW = mem::zeroed();
+	let mut filename = [0 as u16; 1024];
+	let filter_text = convert_string("Text Files (*.txt)\0*.txt\0All Files (*.*)\0*.*\0");
+	let default_ext = convert_string("txt");
+	
+	ofn.lStructSize = mem::size_of::<OPENFILENAMEW>() as u32;
+	ofn.hwndOwner = parent_hwnd;
+	ofn.lpstrFilter = filter_text.as_ptr();
+	ofn.lpstrFile = filename.as_mut_ptr();
+	ofn.nMaxFile = filename.len() as u32;
+	ofn.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
+	ofn.lpstrDefExt = default_ext.as_ptr();
+	
+	if GetOpenFileNameW(&mut ofn) != FALSE {
+		let edit = GetDlgItem(parent_hwnd, IDC_EDIT);
+		
+		// load edit
+		let qqq: Vec<u16> = filename.iter().take_while(|c| **c != 0).map(|c| *c).collect();
+		let s = OsString::from_wide(&qqq[0..]).to_string_lossy().into_owned();
+		let mut file = File::open(&Path::new(&s)).unwrap();
+		
+		let mut data = String::new();
+		
+		file.read_to_string(&mut data).expect("Read file");
+		
+		let oss = convert_string(&data);
+		SendMessageW(edit, WM_SETTEXT, 0, oss.as_ptr() as LPARAM);
+	}
+}
+
+unsafe fn clear_text(parent_hwnd: HWND) {
+	let blank: Vec<u16> = OsStr::new("").encode_wide().chain(once(0)).collect();
+	let edit = GetDlgItem(parent_hwnd, IDC_EDIT);
+	
+	SendMessageW(edit, WM_SETTEXT, 0, blank.as_ptr() as LPARAM);
 }
 
 unsafe fn resize(hwnd: HWND) {
@@ -154,10 +206,28 @@ fn create_toolbar(instance: HINSTANCE, parent_hwnd: HWND) -> HWND {
 		SendMessageW(toolbar, TB_ADDBITMAP, 0, &tbab as *const TBADDBITMAP as LPARAM)
 	};
 	
-	let tbb: [TBBUTTON; 1] = [
+	let tbb: [TBBUTTON; 3] = [
 		TBBUTTON {
 			iBitmap: STD_FILENEW,
-			idCommand: ID_FILE_EXIT,
+			idCommand: ID_FILE_NEW,
+			fsState: TBSTATE_ENABLED,
+			fsStyle: TBSTYLE_BUTTON as u8,
+			bReserved: [0; 6],
+			dwData: 0,
+			iString: 0,
+		},
+		TBBUTTON {
+			iBitmap: STD_FILEOPEN,
+			idCommand: ID_FILE_OPEN,
+			fsState: TBSTATE_ENABLED,
+			fsStyle: TBSTYLE_BUTTON as u8,
+			bReserved: [0; 6],
+			dwData: 0,
+			iString: 0,
+		},
+		TBBUTTON {
+			iBitmap: STD_FILESAVE,
+			idCommand: ID_FILE_SAVEAS,
 			fsState: TBSTATE_ENABLED,
 			fsStyle: TBSTYLE_BUTTON as u8,
 			bReserved: [0; 6],
@@ -213,10 +283,10 @@ fn create_status(instance: HINSTANCE, parent_hwnd: HWND) -> HWND {
 fn populate_window(hwnd: HWND) {
 	let instance = get_current_instance_handle();
 	
-	//create_menu(hwnd);
+	create_menu(hwnd);
 	create_edit(instance, hwnd);
-	//create_toolbar(instance, hwnd);
-	//create_status(instance, hwnd);
+	create_toolbar(instance, hwnd);
+	create_status(instance, hwnd);
 }
 
 fn get_current_instance_handle() -> HINSTANCE {
@@ -248,6 +318,7 @@ fn main() {
 		let mut msg: MSG = mem::uninitialized();
 		
 		while GetMessageW(&mut msg, ptr::null_mut(), 0, 0) > 0 {
+			TranslateMessage(&msg);
 			DispatchMessageW(&msg);
 		};
 	};
