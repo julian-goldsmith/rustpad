@@ -10,7 +10,7 @@ use std::iter::once;
 use std::mem;
 use std::os::windows::ffi::{OsStrExt,OsStringExt};
 use std::ptr;
-use std::io::Read;
+use std::io::{Read,Write};
 use user32::*;
 use winapi::*;
 use gdi32::*;
@@ -22,6 +22,7 @@ const IDC_EDIT: i32 = 101;
 const IDC_TOOLBAR: i32 = 102;
 const IDC_MAIN_STATUS: i32 = 104;
 
+const ID_MENU: i32 = 9000;
 const ID_FILE_EXIT: i32 = 9001;
 const ID_FILE_NEW: i32 = 9002;
 const ID_FILE_OPEN: i32 = 9003;
@@ -42,6 +43,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: UINT, w_param: WPARAM, l_para
 				ID_FILE_EXIT => { PostMessageW(hwnd, WM_CLOSE, 0, 0); },
 				ID_FILE_NEW => clear_text(hwnd),
 				ID_FILE_OPEN => open_file(hwnd),
+				ID_FILE_SAVEAS => save_file(hwnd),
 				_ => (),
 			};
 		},
@@ -80,6 +82,38 @@ unsafe fn open_file(parent_hwnd: HWND) {
 		
 		let oss = convert_string(&data);
 		SendMessageW(edit, WM_SETTEXT, 0, oss.as_ptr() as LPARAM);
+	}
+}
+
+unsafe fn save_file(parent_hwnd: HWND) {
+	let mut ofn: OPENFILENAMEW = mem::zeroed();
+	let mut filename = [0 as u16; 1024];
+	let filter_text = convert_string("Text Files (*.txt)\0*.txt\0All Files (*.*)\0*.*\0");
+	let default_ext = convert_string("txt");
+	
+	ofn.lStructSize = mem::size_of::<OPENFILENAMEW>() as u32;
+	ofn.hwndOwner = parent_hwnd;
+	ofn.lpstrFilter = filter_text.as_ptr();
+	ofn.lpstrFile = filename.as_mut_ptr();
+	ofn.nMaxFile = filename.len() as u32;
+	ofn.Flags = OFN_EXPLORER | OFN_HIDEREADONLY;
+	ofn.lpstrDefExt = default_ext.as_ptr();
+	
+	if GetSaveFileNameW(&mut ofn) != FALSE {
+		let edit = GetDlgItem(parent_hwnd, IDC_EDIT);
+		
+		let oss = [0 as u16; 4096];
+		SendMessageW(edit, WM_GETTEXT, oss.len() as u64, oss.as_ptr() as LPARAM);
+		
+		// load edit
+		let qqq: Vec<u16> = filename.iter().take_while(|c| **c != 0).map(|c| *c).collect();
+		let s = OsString::from_wide(&qqq[0..]).to_string_lossy().into_owned();
+		let mut file = File::create(&Path::new(&s)).unwrap();
+		
+		let qqq2: Vec<u16> = oss.iter().take_while(|c| **c != 0).map(|c| *c).collect();
+		let file_text = OsString::from_wide(&qqq2[0..]).to_string_lossy().into_owned();
+		
+		file.write_all(&file_text.as_bytes()).expect("Write file");
 	}
 }
 
@@ -146,7 +180,7 @@ fn create_window(instance: HINSTANCE, class_name: &Vec<u16>, window_title: &Vec<
 		CreateWindowExW(
 			0, class_name.as_ptr(), window_title.as_ptr(),
 			WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, CW_USEDEFAULT, CW_USEDEFAULT, 480, 320,
-			ptr::null_mut(), ptr::null_mut(), instance, ptr::null_mut())
+			ptr::null_mut(), ID_MENU as HMENU, instance, ptr::null_mut())
 	};
 		
 	if hwnd == ptr::null_mut() {
@@ -242,16 +276,28 @@ fn create_toolbar(instance: HINSTANCE, parent_hwnd: HWND) -> HWND {
 	
 	toolbar
 }
-
+/*
 fn create_menu(parent_hwnd: HWND) {
 	let exit_string: Vec<u16> = OsStr::new("E&xit").encode_wide().chain(once(0)).collect();
 	let file_string: Vec<u16> = OsStr::new("&File").encode_wide().chain(once(0)).collect();
+	let new_string: Vec<u16> = OsStr::new("&New").encode_wide().chain(once(0)).collect();
+	let open_string: Vec<u16> = OsStr::new("&Open").encode_wide().chain(once(0)).collect();
+	let save_as_string: Vec<u16> = OsStr::new("Save &As").encode_wide().chain(once(0)).collect();
 	
 	let menu = unsafe {
 		let menu = CreateMenu();
 		
 		let sub_menu = CreatePopupMenu();
+		
+		AppendMenuW(sub_menu, MF_STRING, ID_FILE_NEW as u64, new_string.as_ptr());
+		AppendMenuW(sub_menu, MF_SEPARATOR, 0, ptr::null());
+		
+		AppendMenuW(sub_menu, MF_STRING, ID_FILE_OPEN as u64, open_string.as_ptr());
+		AppendMenuW(sub_menu, MF_STRING, ID_FILE_SAVEAS as u64, save_as_string.as_ptr());
+		AppendMenuW(sub_menu, MF_SEPARATOR, 0, ptr::null());
+		
 		AppendMenuW(sub_menu, MF_STRING, ID_FILE_EXIT as u64, exit_string.as_ptr());
+		
 		AppendMenuW(menu, MF_STRING | MF_POPUP, sub_menu as u64, file_string.as_ptr());
 		
 		SetMenu(parent_hwnd, menu);
@@ -263,7 +309,7 @@ fn create_menu(parent_hwnd: HWND) {
 		panic!("Couldn't create menu");
 	};
 }
-
+*/
 fn create_status(instance: HINSTANCE, parent_hwnd: HWND) -> HWND {
 	let statusbar_class: Vec<u16> = OsStr::new("msctls_statusbar32").encode_wide().chain(once(0)).collect();
 		
@@ -283,7 +329,7 @@ fn create_status(instance: HINSTANCE, parent_hwnd: HWND) -> HWND {
 fn populate_window(hwnd: HWND) {
 	let instance = get_current_instance_handle();
 	
-	create_menu(hwnd);
+	//create_menu(hwnd);
 	create_edit(instance, hwnd);
 	create_toolbar(instance, hwnd);
 	create_status(instance, hwnd);
@@ -319,6 +365,7 @@ fn main() {
 		
 		while GetMessageW(&mut msg, ptr::null_mut(), 0, 0) > 0 {
 			TranslateMessage(&msg);
+			//TranslateAcceleratorW(&msg);
 			DispatchMessageW(&msg);
 		};
 	};

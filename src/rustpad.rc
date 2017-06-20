@@ -1,0 +1,14 @@
+#include "winuser.h"
+
+#define ID_MENU 9000
+#define ID_FILE_EXIT 9001
+#define ID_FILE_NEW 9002
+#define ID_FILE_OPEN 9003
+#define ID_FILE_SAVEAS 9004
+
+ID_MENU MENU {
+    POPUP "&File" {
+        MENUITEM "&New\tCtrl+N", ID_FILE_NEW
+        MENUITEM "E&xit", ID_FILE_EXIT
+    }
+}
