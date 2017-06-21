@@ -2,7 +2,6 @@
 name = "rustpad"
 version = "0.1.0"
 authors = ["Julian Goldsmith <shadow0813@gmail.com>"]
-build="build.rs"
 
 [dependencies]
 winapi = "0.2"

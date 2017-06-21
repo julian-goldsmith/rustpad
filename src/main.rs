@@ -21,8 +21,8 @@ use std::path::Path;
 const IDC_EDIT: i32 = 101;
 const IDC_TOOLBAR: i32 = 102;
 const IDC_MAIN_STATUS: i32 = 104;
+const IDC_REBAR: i32 = 105;
 
-const ID_MENU: i32 = 9000;
 const ID_FILE_EXIT: i32 = 9001;
 const ID_FILE_NEW: i32 = 9002;
 const ID_FILE_OPEN: i32 = 9003;
@@ -130,22 +130,24 @@ unsafe fn resize(hwnd: HWND) {
 	
 	let edit = GetDlgItem(hwnd, IDC_EDIT);
 	let tool = GetDlgItem(hwnd, IDC_TOOLBAR);
+	let rebar = GetDlgItem(hwnd, IDC_REBAR);
 	let status = GetDlgItem(hwnd, IDC_MAIN_STATUS);
 	
-	SendMessageW(tool, TB_AUTOSIZE, 0, 0);
 	SendMessageW(status, WM_SIZE, 0, 0);
+	SendMessageW(tool, TB_AUTOSIZE, 0, 0);
+	SendMessageW(rebar, WM_SIZE, 0, 0);
 	
-	let mut tool_rect: RECT = mem::uninitialized();
-	GetWindowRect(tool, &mut tool_rect);
+	let mut rebar_rect: RECT = mem::uninitialized();
+	GetWindowRect(rebar, &mut rebar_rect);
 	
 	let mut status_rect: RECT = mem::uninitialized();
 	GetWindowRect(status, &mut status_rect);
 	
-	let tool_height = tool_rect.bottom - tool_rect.top;
+	let rebar_height = rebar_rect.bottom - rebar_rect.top;
 	let status_height = status_rect.bottom - status_rect.top;
-	let edit_height = rect.bottom - tool_height - status_height;
+	let edit_height = rect.bottom - rebar_height - status_height;
 	
-	SetWindowPos(edit, ptr::null_mut(), 0, tool_height, rect.right, edit_height, SWP_NOZORDER);
+	SetWindowPos(edit, ptr::null_mut(), 0, rebar_height, rect.right, edit_height, SWP_NOZORDER);
 }
 
 fn register_window_class(h_instance: HINSTANCE, class_name: &Vec<u16>) -> ATOM {
@@ -180,7 +182,7 @@ fn create_window(instance: HINSTANCE, class_name: &Vec<u16>, window_title: &Vec<
 		CreateWindowExW(
 			0, class_name.as_ptr(), window_title.as_ptr(),
 			WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, CW_USEDEFAULT, CW_USEDEFAULT, 480, 320,
-			ptr::null_mut(), ID_MENU as HMENU, instance, ptr::null_mut())
+			ptr::null_mut(), ptr::null_mut(), instance, ptr::null_mut())
 	};
 		
 	if hwnd == ptr::null_mut() {
@@ -215,12 +217,45 @@ fn create_edit(instance: HINSTANCE, parent_hwnd: HWND) -> HWND {
 	edit
 }
 
-fn create_toolbar(instance: HINSTANCE, parent_hwnd: HWND) -> HWND {
+fn create_menu(parent_hwnd: HWND) {
+	let exit_string: Vec<u16> = OsStr::new("E&xit").encode_wide().chain(once(0)).collect();
+	let file_string: Vec<u16> = OsStr::new("&File").encode_wide().chain(once(0)).collect();
+	let new_string: Vec<u16> = OsStr::new("&New").encode_wide().chain(once(0)).collect();
+	let open_string: Vec<u16> = OsStr::new("&Open").encode_wide().chain(once(0)).collect();
+	let save_as_string: Vec<u16> = OsStr::new("Save &As").encode_wide().chain(once(0)).collect();
+	
+	let menu = unsafe {
+		let menu = CreateMenu();
+		
+		let sub_menu = CreatePopupMenu();
+		
+		AppendMenuW(sub_menu, MF_STRING, ID_FILE_NEW as u64, new_string.as_ptr());
+		AppendMenuW(sub_menu, MF_SEPARATOR, 0, ptr::null());
+		
+		AppendMenuW(sub_menu, MF_STRING, ID_FILE_OPEN as u64, open_string.as_ptr());
+		AppendMenuW(sub_menu, MF_STRING, ID_FILE_SAVEAS as u64, save_as_string.as_ptr());
+		AppendMenuW(sub_menu, MF_SEPARATOR, 0, ptr::null());
+
+		AppendMenuW(sub_menu, MF_STRING, ID_FILE_EXIT as u64, exit_string.as_ptr());
+		
+		AppendMenuW(menu, MF_STRING | MF_POPUP, sub_menu as u64, file_string.as_ptr());
+		
+		SetMenu(parent_hwnd, menu);
+		
+		menu
+	};
+	
+	if menu == ptr::null_mut() {
+		panic!("Couldn't create menu");
+	};
+}
+
+fn create_toolbar(instance: HINSTANCE, parent_hwnd: HWND, rebar: HWND) -> HWND {
 	let toolbar_name: Vec<u16> = OsStr::new("ToolbarWindow32").encode_wide().chain(once(0)).collect();
 	
 	let toolbar = unsafe {
 		CreateWindowExW(0, toolbar_name.as_ptr(), ptr::null_mut(), WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, 
-			parent_hwnd, IDC_TOOLBAR as HMENU, instance, ptr::null_mut())
+			rebar, IDC_TOOLBAR as HMENU, instance, ptr::null_mut())
 	};
 	
 	if toolbar == ptr::null_mut() {
@@ -274,42 +309,67 @@ fn create_toolbar(instance: HINSTANCE, parent_hwnd: HWND) -> HWND {
 		SendMessageW(toolbar, TB_ADDBUTTONSW, tbb.len() as u64, tbb.as_ptr() as LPARAM);
 	};
 	
+	unsafe {
+		let mut rb_band: REBARBANDINFOW = mem::zeroed();
+		rb_band.cbSize = mem::size_of::<REBARBANDINFOW>() as u32;
+		rb_band.fMask = RBBIM_COLORS | RBBIM_CHILD | RBBIM_CHILDSIZE | RBBIM_ID;
+		rb_band.clrFore = GetSysColor(COLOR_BTNTEXT);
+		rb_band.clrBack = GetSysColor(COLOR_BTNFACE);
+		rb_band.fStyle = RBBS_NOVERT | RBBS_CHILDEDGE;
+		rb_band.hwndChild = toolbar;
+		rb_band.wID = IDC_TOOLBAR as u32;
+		rb_band.cxMinChild = 48;
+		rb_band.cyMinChild = 16;
+		rb_band.cyChild = 16;
+		
+	
+		/*
+		let rbband = REBARBANDINFOW {
+			cbSize: mem::size_of::<REBARBANDINFO>(),
+			fMask: RBBIM_COLORS | RBBIM_CHILD | RBBIM_CHILDSIZE | RBBIM_ID,
+			clrFore: GetSysColor(COLOR_BTNTEXT),
+			clrBack: GetSysColor(COLOR_BTNFACE),
+			fStyle: RBBS_NOVERT | RBBS_CHILDEDGE,
+			hwndChild: toolbar,
+			wID: IDC_TOOLBAR,
+			cxMinChild: MIN_TBCX,
+			cyMinChild: MIN_CY,
+		};
+		*/
+		
+		SendMessageW(rebar, RB_INSERTBANDW, -1 as i64 as WPARAM, &mut rb_band as LPREBARBANDINFOW as LPARAM);
+	};
+	
 	toolbar
 }
-/*
-fn create_menu(parent_hwnd: HWND) {
-	let exit_string: Vec<u16> = OsStr::new("E&xit").encode_wide().chain(once(0)).collect();
-	let file_string: Vec<u16> = OsStr::new("&File").encode_wide().chain(once(0)).collect();
-	let new_string: Vec<u16> = OsStr::new("&New").encode_wide().chain(once(0)).collect();
-	let open_string: Vec<u16> = OsStr::new("&Open").encode_wide().chain(once(0)).collect();
-	let save_as_string: Vec<u16> = OsStr::new("Save &As").encode_wide().chain(once(0)).collect();
+
+fn create_rebar(parent_hwnd: HWND) -> HWND {
+	let rebar_class: Vec<u16> = OsStr::new("ReBarWindow32").encode_wide().chain(once(0)).collect();
 	
-	let menu = unsafe {
-		let menu = CreateMenu();
-		
-		let sub_menu = CreatePopupMenu();
-		
-		AppendMenuW(sub_menu, MF_STRING, ID_FILE_NEW as u64, new_string.as_ptr());
-		AppendMenuW(sub_menu, MF_SEPARATOR, 0, ptr::null());
-		
-		AppendMenuW(sub_menu, MF_STRING, ID_FILE_OPEN as u64, open_string.as_ptr());
-		AppendMenuW(sub_menu, MF_STRING, ID_FILE_SAVEAS as u64, save_as_string.as_ptr());
-		AppendMenuW(sub_menu, MF_SEPARATOR, 0, ptr::null());
-		
-		AppendMenuW(sub_menu, MF_STRING, ID_FILE_EXIT as u64, exit_string.as_ptr());
-		
-		AppendMenuW(menu, MF_STRING | MF_POPUP, sub_menu as u64, file_string.as_ptr());
-		
-		SetMenu(parent_hwnd, menu);
-		
-		menu
+	let rebar = unsafe {
+		CreateWindowExW(0, rebar_class.as_ptr(), ptr::null_mut(),
+			WS_VISIBLE | WS_BORDER | WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS |
+			CCS_NODIVIDER | CCS_NOPARENTALIGN | RBS_VARHEIGHT | RBS_BANDBORDERS,
+			0, 0, 400, 275,
+			parent_hwnd,
+			IDC_REBAR as HMENU,
+			ptr::null_mut(),
+			ptr::null_mut())
 	};
 	
-	if menu == ptr::null_mut() {
-		panic!("Couldn't create menu");
+	let mut rbi = REBARINFO {
+		cbSize: mem::size_of::<REBARINFO>() as UINT,
+		fMask: 0,
+		himl: ptr::null_mut(),
 	};
+	
+	unsafe {
+		SendMessageW(rebar, RB_SETBARINFO, 0, &mut rbi as LPREBARINFO as LPARAM);
+	};
+		
+	rebar
 }
-*/
+
 fn create_status(instance: HINSTANCE, parent_hwnd: HWND) -> HWND {
 	let statusbar_class: Vec<u16> = OsStr::new("msctls_statusbar32").encode_wide().chain(once(0)).collect();
 		
@@ -329,9 +389,13 @@ fn create_status(instance: HINSTANCE, parent_hwnd: HWND) -> HWND {
 fn populate_window(hwnd: HWND) {
 	let instance = get_current_instance_handle();
 	
-	//create_menu(hwnd);
+	create_menu(hwnd);
 	create_edit(instance, hwnd);
-	create_toolbar(instance, hwnd);
+	
+	let rebar = create_rebar(hwnd);
+	
+	create_toolbar(instance, hwnd, rebar);
+	
 	create_status(instance, hwnd);
 }
 
@@ -346,7 +410,12 @@ fn main() {
 	let window_title: Vec<u16> = OsStr::new("Test window").encode_wide().chain(once(0)).collect();
 	
 	unsafe {
-		comctl32::InitCommonControls();
+		let icc = INITCOMMONCONTROLSEX {
+			dwSize: mem::size_of::<INITCOMMONCONTROLSEX>() as u32,
+			dwICC: ICC_BAR_CLASSES | ICC_COOL_CLASSES,
+		};
+		
+		comctl32::InitCommonControlsEx(&icc);
 	};
 	
 	let instance = get_current_instance_handle();
@@ -365,7 +434,6 @@ fn main() {
 		
 		while GetMessageW(&mut msg, ptr::null_mut(), 0, 0) > 0 {
 			TranslateMessage(&msg);
-			//TranslateAcceleratorW(&msg);
 			DispatchMessageW(&msg);
 		};
 	};
