@@ -9,8 +9,10 @@ use winapi::*;
 use gdi32::*;
 use comdlg32::*;
 use kernel32;
+use winapi::winnt;
 use std::fs::File;
 use std::path::Path;
+use std::str;
 
 const IDC_EDIT: i32 = 101;
 const IDC_TOOLBAR: i32 = 102;
@@ -191,7 +193,28 @@ impl MainWindow {
 		};
 			
 		if hwnd == ptr::null_mut() {
-			panic!("Couldn't create window");
+			let msg_buf = [0 as u8; 256];
+			
+			let error_string = unsafe {
+				kernel32::FormatMessageA(
+					FORMAT_MESSAGE_ALLOCATE_BUFFER as DWORD |
+					FORMAT_MESSAGE_FROM_SYSTEM |
+					FORMAT_MESSAGE_IGNORE_INSERTS,
+					ptr::null_mut(),
+					kernel32::GetLastError(),
+					winnt::MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT) as DWORD,
+					msg_buf.as_ptr() as LPSTR,
+					255, ptr::null_mut());
+			
+				let error_len = kernel32::lstrlenA(msg_buf.as_ptr() as LPCSTR) as usize;
+				let error_bytes = &msg_buf[0..error_len];
+				
+				println!("bytes: {:?}", error_bytes);
+			
+				str::from_utf8(error_bytes).unwrap()
+			};
+			
+			panic!("Couldn't create window: {}", error_string);
 		};
 		
 		hwnd
