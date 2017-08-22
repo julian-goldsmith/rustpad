@@ -80,58 +80,58 @@ impl MainWindow {
 
 	unsafe fn open_file(&mut self) {
 		let mut ofn: OPENFILENAMEW = mem::zeroed();
-		let mut filename = [0 as u16; 1024];
+		let mut filename_buf = [0 as u16; 1024];
 		let filter_text = convert_string("Text Files (*.txt)\0*.txt\0All Files (*.*)\0*.*\0");
 		let default_ext = convert_string("txt");
 		
 		ofn.lStructSize = mem::size_of::<OPENFILENAMEW>() as u32;
 		ofn.hwndOwner = self.hwnd;
 		ofn.lpstrFilter = filter_text.as_ptr();
-		ofn.lpstrFile = filename.as_mut_ptr();
-		ofn.nMaxFile = filename.len() as u32;
+		ofn.lpstrFile = filename_buf.as_mut_ptr();
+		ofn.nMaxFile = filename_buf.len() as u32;
 		ofn.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
 		ofn.lpstrDefExt = default_ext.as_ptr();
 		
 		if GetOpenFileNameW(&mut ofn) != FALSE {
 			// load edit
-			let qqq: Vec<u16> = filename.iter().take_while(|c| **c != 0).map(|c| *c).collect();
-			let s = OsString::from_wide(&qqq[0..]).to_string_lossy().into_owned();
-			let mut file = File::open(&Path::new(&s)).unwrap();
+			let filename_length = kernel32::lstrlenW(ofn.lpstrFile) as usize;
+			let filename = OsString::from_wide(&filename_buf[0..filename_length]).to_string_lossy().into_owned();
+			let mut file = File::open(&Path::new(&filename)).unwrap();
 			
 			let mut data = String::new();
 			
 			file.read_to_string(&mut data).expect("Read file");
 			
-			let oss = convert_string(&data);
-			SendMessageW(self.edit, WM_SETTEXT, 0, oss.as_ptr() as LPARAM);
+			let text = convert_string(&data);
+			SendMessageW(self.edit, WM_SETTEXT, 0, text.as_ptr() as LPARAM);
 		}
 	}
 
 	unsafe fn save_file(&mut self) {
 		let mut ofn: OPENFILENAMEW = mem::zeroed();
-		let mut filename = [0 as u16; 1024];
+		let mut filename_buf = [0 as u16; 1024];
 		let filter_text = convert_string("Text Files (*.txt)\0*.txt\0All Files (*.*)\0*.*\0");
 		let default_ext = convert_string("txt");
 		
 		ofn.lStructSize = mem::size_of::<OPENFILENAMEW>() as u32;
 		ofn.hwndOwner = self.hwnd;
 		ofn.lpstrFilter = filter_text.as_ptr();
-		ofn.lpstrFile = filename.as_mut_ptr();
-		ofn.nMaxFile = filename.len() as u32;
+		ofn.lpstrFile = filename_buf.as_mut_ptr();
+		ofn.nMaxFile = filename_buf.len() as u32;
 		ofn.Flags = OFN_EXPLORER | OFN_HIDEREADONLY;
 		ofn.lpstrDefExt = default_ext.as_ptr();
 		
 		if GetSaveFileNameW(&mut ofn) != FALSE {
-			let oss = [0 as u16; 4096];
-			SendMessageW(self.edit, WM_GETTEXT, oss.len() as u64, oss.as_ptr() as LPARAM);
-			
 			// load edit
-			let qqq: Vec<u16> = filename.iter().take_while(|c| **c != 0).map(|c| *c).collect();
-			let s = OsString::from_wide(&qqq[0..]).to_string_lossy().into_owned();
-			let mut file = File::create(&Path::new(&s)).unwrap();
+			let filename_length = kernel32::lstrlenW(ofn.lpstrFile) as usize;
+			let filename = OsString::from_wide(&filename_buf[0..filename_length]).to_string_lossy().into_owned();
+			let mut file = File::create(&Path::new(&filename)).unwrap();
 			
-			let qqq2: Vec<u16> = oss.iter().take_while(|c| **c != 0).map(|c| *c).collect();
-			let file_text = OsString::from_wide(&qqq2[0..]).to_string_lossy().into_owned();
+			let text_buf = [0 as u16; 4096];
+			SendMessageW(self.edit, WM_GETTEXT, text_buf.len() as u64, text_buf.as_ptr() as LPARAM);
+			
+			let text_length = kernel32::lstrlenW(ofn.lpstrFile) as usize;
+			let file_text = OsString::from_wide(&text_buf[0..text_length]).to_string_lossy().into_owned();
 			
 			file.write_all(&file_text.as_bytes()).expect("Write file");
 		}
