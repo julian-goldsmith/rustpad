@@ -9,7 +9,6 @@ use winapi::*;
 use gdi32::*;
 use comdlg32::*;
 use kernel32;
-use winapi::winnt;
 use std::fs::File;
 use std::path::Path;
 use std::str;
@@ -29,25 +28,41 @@ fn convert_string(string: &str) -> Vec<u16> {
 
 pub struct MainWindow {
 	pub hwnd: HWND,
-	hinstance: HINSTANCE,
+	pub edit: HWND,
+	pub toolbar: HWND,
+	pub status: HWND,
+	pub hinstance: HINSTANCE,
 }
 
 static mut MAIN_WINDOW_INSTANCE: Option<MainWindow> = None;
 
 impl MainWindow {
 	unsafe extern "system" fn wndproc(hwnd: HWND, msg: UINT, w_param: WPARAM, l_param: LPARAM) -> LRESULT {
-		let mut main_window = if let Some(ref mut main_window) = MAIN_WINDOW_INSTANCE {
-			main_window
-		} else {
-			return 0;
-		};
-		
-		match msg {
+		match msg { 
 			WM_CLOSE => { DestroyWindow(hwnd); },
 			WM_DESTROY => { PostQuitMessage(0); },
-			WM_CREATE => { main_window.populate_window(); },
-			WM_SIZE => { main_window.resize(); },
+			WM_CREATE => { 
+				let create = l_param as LPCREATESTRUCTA;
+				
+				MAIN_WINDOW_INSTANCE = Some(MainWindow {
+					hwnd: hwnd,
+					hinstance: (*create).hInstance,
+					edit: ptr::null_mut() as HWND,
+					toolbar: ptr::null_mut() as HWND,
+					status: ptr::null_mut() as HWND,
+				});
+				
+				let mut main_window = MainWindow::get_instance();
+			
+				main_window.populate_window(); 
+			},
+			WM_SIZE => { 
+				let mut main_window = MainWindow::get_instance();
+				main_window.resize();
+			},
 			WM_COMMAND => {
+				let mut main_window = MainWindow::get_instance();
+				
 				match LOWORD(w_param as u32) as i32 {
 					ID_FILE_EXIT => { PostMessageW(hwnd, WM_CLOSE, 0, 0); },
 					ID_FILE_NEW => main_window.clear_text(),
@@ -78,8 +93,6 @@ impl MainWindow {
 		ofn.lpstrDefExt = default_ext.as_ptr();
 		
 		if GetOpenFileNameW(&mut ofn) != FALSE {
-			let edit = GetDlgItem(self.hwnd, IDC_EDIT);
-			
 			// load edit
 			let qqq: Vec<u16> = filename.iter().take_while(|c| **c != 0).map(|c| *c).collect();
 			let s = OsString::from_wide(&qqq[0..]).to_string_lossy().into_owned();
@@ -90,7 +103,7 @@ impl MainWindow {
 			file.read_to_string(&mut data).expect("Read file");
 			
 			let oss = convert_string(&data);
-			SendMessageW(edit, WM_SETTEXT, 0, oss.as_ptr() as LPARAM);
+			SendMessageW(self.edit, WM_SETTEXT, 0, oss.as_ptr() as LPARAM);
 		}
 	}
 
@@ -109,10 +122,8 @@ impl MainWindow {
 		ofn.lpstrDefExt = default_ext.as_ptr();
 		
 		if GetSaveFileNameW(&mut ofn) != FALSE {
-			let edit = GetDlgItem(self.hwnd, IDC_EDIT);
-			
 			let oss = [0 as u16; 4096];
-			SendMessageW(edit, WM_GETTEXT, oss.len() as u64, oss.as_ptr() as LPARAM);
+			SendMessageW(self.edit, WM_GETTEXT, oss.len() as u64, oss.as_ptr() as LPARAM);
 			
 			// load edit
 			let qqq: Vec<u16> = filename.iter().take_while(|c| **c != 0).map(|c| *c).collect();
@@ -128,33 +139,28 @@ impl MainWindow {
 
 	unsafe fn clear_text(&mut self) {
 		let blank: Vec<u16> = convert_string("");
-		let edit = GetDlgItem(self.hwnd, IDC_EDIT);
 		
-		SendMessageW(edit, WM_SETTEXT, 0, blank.as_ptr() as LPARAM);
+		SendMessageW(self.edit, WM_SETTEXT, 0, blank.as_ptr() as LPARAM);
 	}
 
 	unsafe fn resize(&mut self) {
 		let mut rect: RECT = mem::uninitialized();
 		GetClientRect(self.hwnd, &mut rect);
 		
-		let edit = GetDlgItem(self.hwnd, IDC_EDIT);
-		let tool = GetDlgItem(self.hwnd, IDC_TOOLBAR);
-		let status = GetDlgItem(self.hwnd, IDC_MAIN_STATUS);
-		
-		SendMessageW(status, WM_SIZE, 0, 0);
-		SendMessageW(tool, TB_AUTOSIZE, 0, 0);
+		SendMessageW(self.status, WM_SIZE, 0, 0);
+		SendMessageW(self.toolbar, TB_AUTOSIZE, 0, 0);
 		
 		let mut tool_rect: RECT = mem::uninitialized();
-		GetWindowRect(tool, &mut tool_rect);
+		GetWindowRect(self.toolbar, &mut tool_rect);
 		
 		let mut status_rect: RECT = mem::uninitialized();
-		GetWindowRect(status, &mut status_rect);
+		GetWindowRect(self.status, &mut status_rect);
 		
 		let tool_height = tool_rect.bottom - tool_rect.top;
 		let status_height = status_rect.bottom - status_rect.top;
 		let edit_height = rect.bottom - tool_height - status_height;
 		
-		SetWindowPos(edit, ptr::null_mut(), 0, tool_height, rect.right, edit_height, SWP_NOZORDER);
+		SetWindowPos(self.edit, ptr::null_mut(), 0, tool_height, rect.right, edit_height, SWP_NOZORDER);
 	}
 
 	pub fn register_window_class(h_instance: HINSTANCE, class_name: &Vec<u16>) -> ATOM {
@@ -184,7 +190,7 @@ impl MainWindow {
 		atom
 	}
 
-	pub fn create_window(instance: HINSTANCE, class_name: &Vec<u16>, window_title: &Vec<u16>) -> HWND {
+	pub fn create_window(instance: HINSTANCE, class_name: &Vec<u16>, window_title: &Vec<u16>) {
 		let hwnd = unsafe {
 			CreateWindowExW(
 				0, class_name.as_ptr(), window_title.as_ptr(),
@@ -193,56 +199,35 @@ impl MainWindow {
 		};
 			
 		if hwnd == ptr::null_mut() {
-			let msg_buf = [0 as u8; 256];
-			
-			let error_string = unsafe {
-				kernel32::FormatMessageA(
-					FORMAT_MESSAGE_ALLOCATE_BUFFER as DWORD |
-					FORMAT_MESSAGE_FROM_SYSTEM |
-					FORMAT_MESSAGE_IGNORE_INSERTS,
-					ptr::null_mut(),
-					kernel32::GetLastError(),
-					winnt::MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT) as DWORD,
-					msg_buf.as_ptr() as LPSTR,
-					255, ptr::null_mut());
-			
-				let error_len = kernel32::lstrlenA(msg_buf.as_ptr() as LPCSTR) as usize;
-				let error_bytes = &msg_buf[0..error_len];
-				
-				println!("bytes: {:?}", error_bytes);
-			
-				str::from_utf8(error_bytes).unwrap()
+			let error = unsafe {
+				kernel32::GetLastError()
 			};
 			
-			panic!("Couldn't create window: {}", error_string);
+			panic!("Couldn't create window: {:?}", error);
 		};
-		
-		hwnd
 	}
 
-	fn create_edit(&mut self) -> HWND {
+	fn create_edit(&mut self) {
 		let edit_class: Vec<u16> = convert_string("EDIT");
 		let blank: Vec<u16> = convert_string("");
 		
-		let edit = unsafe {
+		self.edit = unsafe {
 			CreateWindowExW(WS_EX_CLIENTEDGE, edit_class.as_ptr(), blank.as_ptr(),
 				WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL,
 				CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, 
 				self.hwnd, IDC_EDIT as HMENU, self.hinstance, ptr::null_mut())
 		};
 		
-		if edit == ptr::null_mut() {
+		if self.edit == ptr::null_mut() {
 			panic!("Couldn't create edit");
 		};
 		
 		unsafe {
 			let font = GetStockObject(DEFAULT_GUI_FONT) as HFONT;
-			SendMessageW(edit, WM_SETFONT, font as WPARAM, 0);
+			SendMessageW(self.edit, WM_SETFONT, font as WPARAM, 0);
 		
-			SendMessageW(edit, WM_SETTEXT, 0, blank.as_ptr() as LPARAM);
+			SendMessageW(self.edit, WM_SETTEXT, 0, blank.as_ptr() as LPARAM);
 		};
-		
-		edit
 	}
 
 	fn create_menu(&mut self) {
@@ -278,20 +263,20 @@ impl MainWindow {
 		};
 	}
 
-	fn create_toolbar(&mut self) -> HWND {
+	fn create_toolbar(&mut self) {
 		let toolbar_name = convert_string("ToolbarWindow32");
 		
-		let toolbar = unsafe {
+		self.toolbar = unsafe {
 			CreateWindowExW(0, toolbar_name.as_ptr(), ptr::null_mut(), WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, 
 				self.hwnd, IDC_TOOLBAR as HMENU, self.hinstance, ptr::null_mut())
 		};
 		
-		if toolbar == ptr::null_mut() {
+		if self.toolbar == ptr::null_mut() {
 			panic!("Couldn't create toolbar");
 		};
 		
 		unsafe {
-			SendMessageW(toolbar, TB_BUTTONSTRUCTSIZE, mem::size_of::<commctrl::TBBUTTON>() as WPARAM, 0);
+			SendMessageW(self.toolbar, TB_BUTTONSTRUCTSIZE, mem::size_of::<commctrl::TBBUTTON>() as WPARAM, 0);
 		};
 		
 		let tbab = TBADDBITMAP {
@@ -300,7 +285,7 @@ impl MainWindow {
 		};
 		
 		unsafe {
-			SendMessageW(toolbar, TB_ADDBITMAP, 0, &tbab as *const TBADDBITMAP as LPARAM)
+			SendMessageW(self.toolbar, TB_ADDBITMAP, 0, &tbab as *const TBADDBITMAP as LPARAM)
 		};
 		
 		let tbb: [TBBUTTON; 3] = [
@@ -334,10 +319,8 @@ impl MainWindow {
 		];
 			
 		unsafe {
-			SendMessageW(toolbar, TB_ADDBUTTONSW, tbb.len() as u64, tbb.as_ptr() as LPARAM);
+			SendMessageW(self.toolbar, TB_ADDBUTTONSW, tbb.len() as u64, tbb.as_ptr() as LPARAM);
 		};
-		
-		toolbar
 	}
 
 	fn create_status(&mut self) -> HWND {
@@ -356,7 +339,7 @@ impl MainWindow {
 		status
 	}
 
-	fn populate_window(&mut self) {		
+	fn populate_window(&mut self) {
 		self.create_menu();
 		self.create_edit();
 		self.create_toolbar();
@@ -369,7 +352,11 @@ impl MainWindow {
 		}
 	}
 	
-	fn new() -> MainWindow {
+	fn create() {
+		unsafe {
+			assert!(MAIN_WINDOW_INSTANCE.is_none());
+		};
+	
 		let class_name: Vec<u16> = OsStr::new("myWindowClass").encode_wide().chain(once(0)).collect();
 		let window_title: Vec<u16> = OsStr::new("Test window").encode_wide().chain(once(0)).collect();
 	
@@ -377,22 +364,16 @@ impl MainWindow {
 	
 		MainWindow::register_window_class(instance, &class_name);
 		
-		let hwnd = MainWindow::create_window(instance, &class_name, &window_title);
-		
-		MainWindow {
-			hwnd: hwnd,
-			hinstance: instance,
-		}
+		MainWindow::create_window(instance, &class_name, &window_title);
 	}
 	
-	pub fn get_instance() -> &'static MainWindow {
+	pub fn get_instance() -> &'static mut MainWindow {
 		unsafe {
-			if let Some(ref mut main_window) = MAIN_WINDOW_INSTANCE {
-				main_window
-			} else {
-				MAIN_WINDOW_INSTANCE = Some(MainWindow::new());
-				MainWindow::get_instance()
-			}
+			if MAIN_WINDOW_INSTANCE.is_none() {
+				MainWindow::create();
+			};
+	
+			MAIN_WINDOW_INSTANCE.as_mut().unwrap()
 		}
 	}
 }
