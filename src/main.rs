@@ -1,3 +1,5 @@
+#![windows_subsystem = "windows"]
+
 extern crate comctl32;
 extern crate comdlg32;
 extern crate gdi32;

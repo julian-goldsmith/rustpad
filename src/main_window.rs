@@ -330,8 +330,8 @@ impl MainWindow {
 			assert_eq!(MAIN_WINDOW_INSTANCE.hwnd, ptr::null_mut());
 		};
 	
-		let class_name: Vec<u16> = OsStr::new("myWindowClass").encode_wide().chain(once(0)).collect();
-		let window_title: Vec<u16> = OsStr::new("Test window").encode_wide().chain(once(0)).collect();
+		let class_name: Vec<u16> = convert_string("Rustpad");
+		let window_title: Vec<u16> = convert_string("Rustpad");
 	
 		let instance = MainWindow::get_current_instance_handle();
 	
