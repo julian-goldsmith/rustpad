@@ -17,6 +17,7 @@ const IDC_EDIT: i32 = 101;
 const IDC_TOOLBAR: i32 = 102;
 const IDC_MAIN_STATUS: i32 = 104;
 
+const ID_MENU: HMENU = 9000 as HMENU;
 const ID_FILE_EXIT: i32 = 9001;
 const ID_FILE_NEW: i32 = 9002;
 const ID_FILE_OPEN: i32 = 9003;
@@ -143,22 +144,19 @@ impl MainWindow {
 		let mut rect: RECT = mem::uninitialized();
 		GetClientRect(self.hwnd, &mut rect);
 		
-		SendMessageW(self.toolbar, WM_SIZE, 0, 0);
-		
 		let mut tool_rect: RECT = mem::uninitialized();
+		SendMessageW(self.toolbar, WM_SIZE, 0, 0);
 		GetWindowRect(self.toolbar, &mut tool_rect);
 		
 		let mut status_rect: RECT = mem::uninitialized();
+		SendMessageW(self.status, WM_SIZE, 0, 0);
 		GetWindowRect(self.status, &mut status_rect);
 		
 		let tool_height = tool_rect.bottom - tool_rect.top;
-		let status_height = 16;//status_rect.bottom - status_rect.top;
+		let status_height = status_rect.bottom - status_rect.top;
 		let edit_height = rect.bottom - tool_height - status_height;
 		
 		SetWindowPos(self.edit, ptr::null_mut(), 0, tool_height, rect.right, edit_height, SWP_NOZORDER);
-		
-		SendMessageW(self.status, WM_SIZE, 0, 0);
-		SendMessageW(self.toolbar, WM_SIZE, 0, 0);
 	}
 
 	pub fn register_window_class(h_instance: HINSTANCE, class_name: &Vec<u16>) -> ATOM {
@@ -189,11 +187,23 @@ impl MainWindow {
 	}
 
 	pub fn create_window(instance: HINSTANCE, class_name: &Vec<u16>, window_title: &Vec<u16>) {
+		let hmenu = unsafe {
+			LoadMenuW(instance, ID_MENU as WORD as ULONG_PTR as LPWSTR)
+		};
+		
+		if hmenu == ptr::null_mut() {
+			let error = unsafe {
+				kernel32::GetLastError()
+			};
+			
+			panic!("Couldn't create hmenu: {:?}", error);
+		};
+		
 		let hwnd = unsafe {
 			CreateWindowExW(
 				0, class_name.as_ptr(), window_title.as_ptr(),
 				WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, CW_USEDEFAULT, CW_USEDEFAULT, 480, 320,
-				ptr::null_mut(), ptr::null_mut(), instance, ptr::null_mut())
+				ptr::null_mut(), hmenu, instance, ptr::null_mut())
 		};
 		
 		if hwnd == ptr::null_mut() {
@@ -225,39 +235,6 @@ impl MainWindow {
 			SendMessageW(self.edit, WM_SETFONT, font as WPARAM, 0);
 		
 			SendMessageW(self.edit, WM_SETTEXT, 0, blank.as_ptr() as LPARAM);
-		};
-	}
-
-	fn create_menu(&mut self) {
-		let exit_string = convert_string("E&xit");
-		let file_string = convert_string("&File");
-		let new_string = convert_string("&New");
-		let open_string = convert_string("&Open");
-		let save_as_string = convert_string("Save &As");
-		
-		let menu = unsafe {
-			let menu = CreateMenu();
-			
-			let sub_menu = CreatePopupMenu();
-			
-			AppendMenuW(sub_menu, MF_STRING, ID_FILE_NEW as u64, new_string.as_ptr());
-			AppendMenuW(sub_menu, MF_SEPARATOR, 0, ptr::null());
-			
-			AppendMenuW(sub_menu, MF_STRING, ID_FILE_OPEN as u64, open_string.as_ptr());
-			AppendMenuW(sub_menu, MF_STRING, ID_FILE_SAVEAS as u64, save_as_string.as_ptr());
-			AppendMenuW(sub_menu, MF_SEPARATOR, 0, ptr::null());
-
-			AppendMenuW(sub_menu, MF_STRING, ID_FILE_EXIT as u64, exit_string.as_ptr());
-			
-			AppendMenuW(menu, MF_STRING | MF_POPUP, sub_menu as u64, file_string.as_ptr());
-			
-			SetMenu(self.hwnd, menu);
-			
-			menu
-		};
-		
-		if menu == ptr::null_mut() {
-			panic!("Couldn't create menu");
 		};
 	}
 
@@ -337,7 +314,6 @@ impl MainWindow {
 	}
 
 	fn populate_window(&mut self) {
-		self.create_menu();
 		self.create_edit();
 		self.create_toolbar();
 		self.create_status();
