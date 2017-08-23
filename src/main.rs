@@ -11,7 +11,7 @@ use std::mem;
 use std::ptr;
 use user32::*;
 use winapi::*;
-use main_window::MainWindow;
+use main_window::{MainWindow, MAIN_WINDOW_INSTANCE};
 
 fn main() {
 	unsafe {
@@ -23,11 +23,11 @@ fn main() {
 		comctl32::InitCommonControlsEx(&icc);
 	};
 	
-	let main_window = MainWindow::get_instance();
+	MainWindow::initialize();
 	
 	unsafe {	
-		ShowWindow(main_window.hwnd, SW_SHOW);
-		UpdateWindow(main_window.hwnd);
+		ShowWindow(MAIN_WINDOW_INSTANCE.hwnd, SW_SHOW);
+		UpdateWindow(MAIN_WINDOW_INSTANCE.hwnd);
 	};
 	
 	unsafe {

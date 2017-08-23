@@ -34,7 +34,13 @@ pub struct MainWindow {
 	pub hinstance: HINSTANCE,
 }
 
-static mut MAIN_WINDOW_INSTANCE: Option<MainWindow> = None;
+pub static mut MAIN_WINDOW_INSTANCE: MainWindow = MainWindow {
+	hwnd: 0 as HWND,
+	edit: 0 as HWND,
+	toolbar: 0 as HWND,
+	status: 0 as HWND,
+	hinstance: 0 as HINSTANCE,
+};
 
 impl MainWindow {
 	unsafe extern "system" fn wndproc(hwnd: HWND, msg: UINT, w_param: WPARAM, l_param: LPARAM) -> LRESULT {
@@ -44,30 +50,20 @@ impl MainWindow {
 			WM_CREATE => { 
 				let create = l_param as LPCREATESTRUCTA;
 				
-				MAIN_WINDOW_INSTANCE = Some(MainWindow {
-					hwnd: hwnd,
-					hinstance: (*create).hInstance,
-					edit: ptr::null_mut() as HWND,
-					toolbar: ptr::null_mut() as HWND,
-					status: ptr::null_mut() as HWND,
-				});
-				
-				let mut main_window = MainWindow::get_instance();
+				MAIN_WINDOW_INSTANCE.hwnd = hwnd;
+				MAIN_WINDOW_INSTANCE.hinstance = (*create).hInstance;
 			
-				main_window.populate_window(); 
+				MAIN_WINDOW_INSTANCE.populate_window();
 			},
-			WM_SIZE => { 
-				let mut main_window = MainWindow::get_instance();
-				main_window.resize();
+			WM_SIZE => {
+				MAIN_WINDOW_INSTANCE.resize();
 			},
 			WM_COMMAND => {
-				let mut main_window = MainWindow::get_instance();
-				
 				match LOWORD(w_param as u32) as i32 {
 					ID_FILE_EXIT => { PostMessageW(hwnd, WM_CLOSE, 0, 0); },
-					ID_FILE_NEW => main_window.clear_text(),
-					ID_FILE_OPEN => main_window.open_file(),
-					ID_FILE_SAVEAS => main_window.save_file(),
+					ID_FILE_NEW => MAIN_WINDOW_INSTANCE.clear_text(),
+					ID_FILE_OPEN => MAIN_WINDOW_INSTANCE.open_file(),
+					ID_FILE_SAVEAS => MAIN_WINDOW_INSTANCE.save_file(),
 					_ => (),
 				};
 			},
@@ -147,8 +143,7 @@ impl MainWindow {
 		let mut rect: RECT = mem::uninitialized();
 		GetClientRect(self.hwnd, &mut rect);
 		
-		SendMessageW(self.status, WM_SIZE, 0, 0);
-		SendMessageW(self.toolbar, TB_AUTOSIZE, 0, 0);
+		SendMessageW(self.toolbar, WM_SIZE, 0, 0);
 		
 		let mut tool_rect: RECT = mem::uninitialized();
 		GetWindowRect(self.toolbar, &mut tool_rect);
@@ -157,10 +152,13 @@ impl MainWindow {
 		GetWindowRect(self.status, &mut status_rect);
 		
 		let tool_height = tool_rect.bottom - tool_rect.top;
-		let status_height = status_rect.bottom - status_rect.top;
+		let status_height = 16;//status_rect.bottom - status_rect.top;
 		let edit_height = rect.bottom - tool_height - status_height;
 		
 		SetWindowPos(self.edit, ptr::null_mut(), 0, tool_height, rect.right, edit_height, SWP_NOZORDER);
+		
+		SendMessageW(self.status, WM_SIZE, 0, 0);
+		SendMessageW(self.toolbar, WM_SIZE, 0, 0);
 	}
 
 	pub fn register_window_class(h_instance: HINSTANCE, class_name: &Vec<u16>) -> ATOM {
@@ -197,7 +195,7 @@ impl MainWindow {
 				WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, CW_USEDEFAULT, CW_USEDEFAULT, 480, 320,
 				ptr::null_mut(), ptr::null_mut(), instance, ptr::null_mut())
 		};
-			
+		
 		if hwnd == ptr::null_mut() {
 			let error = unsafe {
 				kernel32::GetLastError()
@@ -323,20 +321,19 @@ impl MainWindow {
 		};
 	}
 
-	fn create_status(&mut self) -> HWND {
+	fn create_status(&mut self) {
 		let statusbar_class = convert_string("msctls_statusbar32");
 		
-		let status = unsafe {
-			CreateWindowExW(0, statusbar_class.as_ptr(), ptr::null_mut(),
-				WS_CHILD | WS_VISIBLE | SBARS_SIZEGRIP, 0, 0, 0, 0,
-				self.hwnd, IDC_MAIN_STATUS as HMENU, self.hinstance, ptr::null_mut())
-		};
+		unsafe {
+			MAIN_WINDOW_INSTANCE.status =
+				CreateWindowExW(0, statusbar_class.as_ptr(), ptr::null_mut(),
+					WS_CHILD | WS_VISIBLE | SBARS_SIZEGRIP, 0, 0, 0, 0,
+					self.hwnd, IDC_MAIN_STATUS as HMENU, self.hinstance, ptr::null_mut());
 		
-		if status == ptr::null_mut() {
-			panic!("Couldn't create status");
+			if MAIN_WINDOW_INSTANCE.status == ptr::null_mut() {
+				panic!("Couldn't create status");
+			};
 		};
-		
-		status
 	}
 
 	fn populate_window(&mut self) {
@@ -352,9 +349,9 @@ impl MainWindow {
 		}
 	}
 	
-	fn create() {
+	pub fn initialize() {
 		unsafe {
-			assert!(MAIN_WINDOW_INSTANCE.is_none());
+			assert_eq!(MAIN_WINDOW_INSTANCE.hwnd, ptr::null_mut());
 		};
 	
 		let class_name: Vec<u16> = OsStr::new("myWindowClass").encode_wide().chain(once(0)).collect();
@@ -365,15 +362,5 @@ impl MainWindow {
 		MainWindow::register_window_class(instance, &class_name);
 		
 		MainWindow::create_window(instance, &class_name, &window_title);
-	}
-	
-	pub fn get_instance() -> &'static mut MainWindow {
-		unsafe {
-			if MAIN_WINDOW_INSTANCE.is_none() {
-				MainWindow::create();
-			};
-	
-			MAIN_WINDOW_INSTANCE.as_mut().unwrap()
-		}
 	}
 }
