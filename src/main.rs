@@ -13,11 +13,11 @@ use std::mem;
 use std::ptr;
 use user32::*;
 use winapi::*;
-use main_window::{MainWindow, MAIN_WINDOW_INSTANCE};
+use main_window::MainWindow;
 
 const IDA_ACCEL_TABLE: i32 = 10000;
 
-// HACK: this will be in the new version of winapi-rs
+// HACK: this will be available in the new version of winapi-rs
 extern "system" {
     pub fn TranslateAcceleratorW(
         hWnd: HWND,
@@ -36,15 +36,11 @@ fn main() {
 		comctl32::InitCommonControlsEx(&icc);
 	};
 	
-	MainWindow::initialize();
-	
-	unsafe {	
-		ShowWindow(MAIN_WINDOW_INSTANCE.hwnd, SW_SHOW);
-		UpdateWindow(MAIN_WINDOW_INSTANCE.hwnd);
-	};
+	let main_window = MainWindow::new();
+	main_window.show();
 	
 	let accel = unsafe {
-		LoadAcceleratorsW(MAIN_WINDOW_INSTANCE.hinstance, IDA_ACCEL_TABLE as WORD as ULONG_PTR as LPWSTR)
+		LoadAcceleratorsW(main_window.instance, IDA_ACCEL_TABLE as WORD as ULONG_PTR as LPWSTR)
 	};
 	
 	if accel == ptr::null_mut() {
@@ -59,7 +55,7 @@ fn main() {
 		let mut msg: MSG = mem::uninitialized();
 		
 		while GetMessageW(&mut msg, ptr::null_mut(), 0, 0) > 0 {
-			if TranslateAcceleratorW(MAIN_WINDOW_INSTANCE.hwnd, accel, &mut msg) == 0 {
+			if TranslateAcceleratorW(main_window.hwnd, accel, &mut msg) == 0 {
 				TranslateMessage(&msg);
 				DispatchMessageW(&msg);
 			};

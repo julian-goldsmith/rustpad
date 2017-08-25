@@ -32,39 +32,33 @@ pub struct MainWindow {
 	pub edit: HWND,
 	pub toolbar: HWND,
 	pub status: HWND,
-	pub hinstance: HINSTANCE,
+	pub instance: HINSTANCE,
+	pub class_atom: ATOM,
 }
-
-pub static mut MAIN_WINDOW_INSTANCE: MainWindow = MainWindow {
-	hwnd: 0 as HWND,
-	edit: 0 as HWND,
-	toolbar: 0 as HWND,
-	status: 0 as HWND,
-	hinstance: 0 as HINSTANCE,
-};
 
 impl MainWindow {
 	unsafe extern "system" fn wndproc(hwnd: HWND, msg: UINT, w_param: WPARAM, l_param: LPARAM) -> LRESULT {
+		assert_ne!(l_param as *mut MainWindow, ptr::null_mut());
+		
+		let mut main_window = (l_param as *mut MainWindow).as_mut().unwrap();
+	
 		match msg { 
 			WM_CLOSE => { DestroyWindow(hwnd); },
 			WM_DESTROY => { PostQuitMessage(0); },
-			WM_CREATE => { 
-				let create = l_param as LPCREATESTRUCTA;
+			WM_CREATE => {
+				main_window.hwnd = hwnd;
 				
-				MAIN_WINDOW_INSTANCE.hwnd = hwnd;
-				MAIN_WINDOW_INSTANCE.hinstance = (*create).hInstance;
-			
-				MAIN_WINDOW_INSTANCE.populate_window();
+				main_window.populate_window();
 			},
 			WM_SIZE => {
-				MAIN_WINDOW_INSTANCE.resize();
+				main_window.resize();
 			},
 			WM_COMMAND => {
 				match LOWORD(w_param as u32) as i32 {
 					ID_FILE_EXIT => { PostMessageW(hwnd, WM_CLOSE, 0, 0); },
-					ID_FILE_NEW => MAIN_WINDOW_INSTANCE.clear_text(),
-					ID_FILE_OPEN => MAIN_WINDOW_INSTANCE.open_file(),
-					ID_FILE_SAVEAS => MAIN_WINDOW_INSTANCE.save_file(),
+					ID_FILE_NEW => main_window.clear_text(),
+					ID_FILE_OPEN => main_window.open_file(),
+					ID_FILE_SAVEAS => main_window.save_file(),
 					_ => (),
 				};
 			},
@@ -158,16 +152,23 @@ impl MainWindow {
 		
 		SetWindowPos(self.edit, ptr::null_mut(), 0, tool_height, rect.right, edit_height, SWP_NOZORDER);
 	}
+	
+	pub fn show(&self) {
+		unsafe {
+			ShowWindow(self.hwnd, SW_SHOW);
+			UpdateWindow(self.hwnd);
+		};
+	}
 
-	pub fn register_window_class(h_instance: HINSTANCE, class_name: &Vec<u16>) -> ATOM {
-		let atom = unsafe {
+	pub fn register_window_class(&mut self, class_name: &Vec<u16>) {
+		self.class_atom = unsafe {
 			let wc = WNDCLASSEXW {
 				cbSize: mem::size_of::<WNDCLASSEXW>() as UINT,
 				style: 0,
 				lpfnWndProc: Some(MainWindow::wndproc),
 				cbClsExtra: 0,
 				cbWndExtra: 0,
-				hInstance: h_instance,
+				hInstance: self.instance,
 				hIcon: LoadIconW(ptr::null_mut(), IDI_APPLICATION),
 				hCursor: LoadCursorW(ptr::null_mut(), IDC_ARROW),
 				hbrBackground: (COLOR_WINDOW + 1) as HBRUSH,
@@ -179,16 +180,14 @@ impl MainWindow {
 			RegisterClassExW(&wc)
 		};
 		
-		if atom == 0 {
+		if self.class_atom == 0 {
 			panic!("Couldn't register class");
 		};
-		
-		atom
 	}
 
-	pub fn create_window(instance: HINSTANCE, class_name: &Vec<u16>, window_title: &Vec<u16>) {
+	pub fn create_window(&mut self, window_title: &Vec<u16>) {
 		let hmenu = unsafe {
-			LoadMenuW(instance, ID_MENU as WORD as ULONG_PTR as LPWSTR)
+			LoadMenuW(self.instance, ID_MENU as WORD as ULONG_PTR as LPWSTR)
 		};
 		
 		if hmenu == ptr::null_mut() {
@@ -199,14 +198,14 @@ impl MainWindow {
 			panic!("Couldn't create hmenu: {:?}", error);
 		};
 		
-		let hwnd = unsafe {
+		self.hwnd = unsafe {
 			CreateWindowExW(
-				0, class_name.as_ptr(), window_title.as_ptr(),
+				0, self.class_atom as LPCWSTR, window_title.as_ptr(),
 				WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, CW_USEDEFAULT, CW_USEDEFAULT, 480, 320,
-				ptr::null_mut(), hmenu, instance, ptr::null_mut())
+				ptr::null_mut(), hmenu, self.instance, self as *mut MainWindow as LPVOID)
 		};
 		
-		if hwnd == ptr::null_mut() {
+		if self.hwnd == ptr::null_mut() {
 			let error = unsafe {
 				kernel32::GetLastError()
 			};
@@ -223,7 +222,7 @@ impl MainWindow {
 			CreateWindowExW(WS_EX_CLIENTEDGE, edit_class.as_ptr(), blank.as_ptr(),
 				WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL,
 				CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, 
-				self.hwnd, IDC_EDIT as HMENU, self.hinstance, ptr::null_mut())
+				self.hwnd, IDC_EDIT as HMENU, self.instance, ptr::null_mut())
 		};
 		
 		if self.edit == ptr::null_mut() {
@@ -243,7 +242,7 @@ impl MainWindow {
 		
 		self.toolbar = unsafe {
 			CreateWindowExW(0, toolbar_name.as_ptr(), ptr::null_mut(), WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, 
-				self.hwnd, IDC_TOOLBAR as HMENU, self.hinstance, ptr::null_mut())
+				self.hwnd, IDC_TOOLBAR as HMENU, self.instance, ptr::null_mut())
 		};
 		
 		if self.toolbar == ptr::null_mut() {
@@ -302,12 +301,12 @@ impl MainWindow {
 		let statusbar_class = convert_string("msctls_statusbar32");
 		
 		unsafe {
-			MAIN_WINDOW_INSTANCE.status =
+			self.status =
 				CreateWindowExW(0, statusbar_class.as_ptr(), ptr::null_mut(),
 					WS_CHILD | WS_VISIBLE | SBARS_SIZEGRIP, 0, 0, 0, 0,
-					self.hwnd, IDC_MAIN_STATUS as HMENU, self.hinstance, ptr::null_mut());
+					self.hwnd, IDC_MAIN_STATUS as HMENU, self.instance, ptr::null_mut());
 		
-			if MAIN_WINDOW_INSTANCE.status == ptr::null_mut() {
+			if self.status == ptr::null_mut() {
 				panic!("Couldn't create status");
 			};
 		};
@@ -325,18 +324,23 @@ impl MainWindow {
 		}
 	}
 	
-	pub fn initialize() {
-		unsafe {
-			assert_eq!(MAIN_WINDOW_INSTANCE.hwnd, ptr::null_mut());
-		};
-	
+	pub fn new() -> MainWindow {
 		let class_name: Vec<u16> = convert_string("Rustpad");
 		let window_title: Vec<u16> = convert_string("Rustpad");
-	
-		let instance = MainWindow::get_current_instance_handle();
-	
-		MainWindow::register_window_class(instance, &class_name);
 		
-		MainWindow::create_window(instance, &class_name, &window_title);
+		let mut window = MainWindow {
+			hwnd: 0 as HWND,
+			edit: 0 as HWND,
+			toolbar: 0 as HWND,
+			status: 0 as HWND,
+			class_atom: 0,
+			instance: MainWindow::get_current_instance_handle(),
+		};
+	
+		window.register_window_class(&class_name);
+		
+		window.create_window(&window_title);
+		
+		window
 	}
 }
