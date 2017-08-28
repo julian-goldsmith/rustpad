@@ -4,6 +4,7 @@ use std::mem;
 use std::os::windows::ffi::{OsStrExt,OsStringExt};
 use std::ptr;
 use std::io::{Read,Write};
+use std::panic;
 use user32::*;
 use winapi::*;
 use gdi32::*;
@@ -12,6 +13,7 @@ use kernel32;
 use std::fs::File;
 use std::path::Path;
 use std::str;
+use std::process;
 
 const IDC_EDIT: i32 = 101;
 const IDC_TOOLBAR: i32 = 102;
@@ -38,35 +40,66 @@ pub struct MainWindow {
 
 impl MainWindow {
 	unsafe extern "system" fn wndproc(hwnd: HWND, msg: UINT, w_param: WPARAM, l_param: LPARAM) -> LRESULT {
-		assert_ne!(l_param as *mut MainWindow, ptr::null_mut());
-		
-		let mut main_window = (l_param as *mut MainWindow).as_mut().unwrap();
+		println!("wndproc {:?} {:?}", hwnd, msg);
 	
-		match msg { 
-			WM_CLOSE => { DestroyWindow(hwnd); },
-			WM_DESTROY => { PostQuitMessage(0); },
-			WM_CREATE => {
-				main_window.hwnd = hwnd;
-				
-				main_window.populate_window();
+		let result = panic::catch_unwind(|| {
+			match msg { 
+				WM_CLOSE => { DestroyWindow(hwnd); },
+				WM_DESTROY => { PostQuitMessage(0); },
+				WM_NCCREATE => {
+					let cs = l_param as *mut CREATESTRUCTW;
+					let mut main_window = ((*cs).lpCreateParams as *mut MainWindow).as_mut().unwrap();
+					
+					main_window.hwnd = hwnd;
+					
+					SetWindowLongPtrW(hwnd, 0, main_window as *mut MainWindow as LONG_PTR);
+					println!("hwnd {:?} {:?}", hwnd, main_window.hwnd);
+					
+					return TRUE as LRESULT; 
+				},
+				WM_CREATE => {
+					let mut main_window = (GetWindowLongPtrW(hwnd, 0) as *mut MainWindow).as_mut().unwrap();
+					println!("hwnd {:?} {:?}", hwnd, main_window.hwnd);
+					
+					main_window.populate_window();
+				},
+				WM_SIZE => {
+					let mut main_window = (GetWindowLongPtrW(hwnd, 0) as *mut MainWindow).as_mut().unwrap();
+					println!("hwnd {:?} {:?}", hwnd, main_window.hwnd);
+					
+					loop {}; 
+					
+					assert_eq!(main_window.hwnd, hwnd);
+					
+					main_window.resize();
+				},
+				WM_COMMAND => {
+					let mut main_window = (GetWindowLongPtrW(hwnd, 0) as *mut MainWindow).as_mut().unwrap();
+					
+					match LOWORD(w_param as u32) as i32 {
+						ID_FILE_EXIT => { PostMessageW(hwnd, WM_CLOSE, 0, 0); },
+						ID_FILE_NEW => main_window.clear_text(),
+						ID_FILE_OPEN => main_window.open_file(),
+						ID_FILE_SAVEAS => main_window.save_file(),
+						_ => (),
+					};
+				},
+				_ => { 
+					return DefWindowProcW(hwnd, msg, w_param, l_param); 
+				},
+			};
+			
+			0
+		});
+		
+		// panicking doesn't work in functions called from C
+		match result {
+			Ok(val) => val,
+			Err(err) => { 
+				println!("Panicked: {:?}", err.downcast_ref::<String>());  
+				process::exit(29); 
 			},
-			WM_SIZE => {
-				main_window.resize();
-			},
-			WM_COMMAND => {
-				match LOWORD(w_param as u32) as i32 {
-					ID_FILE_EXIT => { PostMessageW(hwnd, WM_CLOSE, 0, 0); },
-					ID_FILE_NEW => main_window.clear_text(),
-					ID_FILE_OPEN => main_window.open_file(),
-					ID_FILE_SAVEAS => main_window.save_file(),
-					_ => (),
-				};
-			},
-			_ => { 
-				return DefWindowProcW(hwnd, msg, w_param, l_param); 
-			},
-		};
-		0
+		}
 	}
 
 	unsafe fn open_file(&mut self) {
@@ -150,6 +183,8 @@ impl MainWindow {
 		let status_height = status_rect.bottom - status_rect.top;
 		let edit_height = rect.bottom - tool_height - status_height;
 		
+		println!("Edit height {} {} {} {}", edit_height, tool_height, status_height, rect.bottom);
+		
 		SetWindowPos(self.edit, ptr::null_mut(), 0, tool_height, rect.right, edit_height, SWP_NOZORDER);
 	}
 	
@@ -167,7 +202,7 @@ impl MainWindow {
 				style: 0,
 				lpfnWndProc: Some(MainWindow::wndproc),
 				cbClsExtra: 0,
-				cbWndExtra: 0,
+				cbWndExtra: mem::size_of::<*mut MainWindow>() as i32,
 				hInstance: self.instance,
 				hIcon: LoadIconW(ptr::null_mut(), IDI_APPLICATION),
 				hCursor: LoadCursorW(ptr::null_mut(), IDC_ARROW),
@@ -198,7 +233,7 @@ impl MainWindow {
 			panic!("Couldn't create hmenu: {:?}", error);
 		};
 		
-		self.hwnd = unsafe {
+		unsafe {
 			CreateWindowExW(
 				0, self.class_atom as LPCWSTR, window_title.as_ptr(),
 				WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, CW_USEDEFAULT, CW_USEDEFAULT, 480, 320,
@@ -218,6 +253,8 @@ impl MainWindow {
 		let edit_class: Vec<u16> = convert_string("EDIT");
 		let blank: Vec<u16> = convert_string("");
 		
+		assert_ne!(self.hwnd, ptr::null_mut());
+		
 		self.edit = unsafe {
 			CreateWindowExW(WS_EX_CLIENTEDGE, edit_class.as_ptr(), blank.as_ptr(),
 				WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL,
@@ -226,7 +263,7 @@ impl MainWindow {
 		};
 		
 		if self.edit == ptr::null_mut() {
-			panic!("Couldn't create edit");
+			panic!("Couldn't create edit {}", unsafe { kernel32::GetLastError() });
 		};
 		
 		unsafe {
