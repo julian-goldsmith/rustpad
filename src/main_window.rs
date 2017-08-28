@@ -125,9 +125,8 @@ impl MainWindow {
 			
 			file.read_to_string(&mut data).expect("Read file");
 			
-			let text = util::convert_string(&data);
-			let edit = self.edit.as_ref().unwrap();
-			SendMessageW(edit.hwnd, WM_SETTEXT, 0, text.as_ptr() as LPARAM);
+			let mut edit = self.edit.as_mut().unwrap();
+			edit.set_text(&util::convert_string(&data));
 		}
 	}
 
@@ -151,12 +150,9 @@ impl MainWindow {
 			let filename = OsString::from_wide(&filename_buf[0..filename_length]).to_string_lossy().into_owned();
 			let mut file = File::create(&Path::new(&filename)).unwrap();
 			
-			let text_buf = [0 as u16; 4096];
 			let edit = self.edit.as_ref().unwrap();
-			SendMessageW(edit.hwnd, WM_GETTEXT, text_buf.len() as u64, text_buf.as_ptr() as LPARAM);
-			
-			let text_length = kernel32::lstrlenW(ofn.lpstrFile) as usize;
-			let file_text = OsString::from_wide(&text_buf[0..text_length]).to_string_lossy().into_owned();
+			let text = edit.get_text();
+			let file_text = OsString::from_wide(&text).to_string_lossy().into_owned();
 			
 			file.write_all(&file_text.as_bytes()).expect("Write file");
 		}
@@ -165,8 +161,8 @@ impl MainWindow {
 	unsafe fn clear_text(&mut self) {
 		let blank: Vec<u16> = util::convert_string("");
 		
-		let edit = self.edit.as_ref().unwrap();
-		SendMessageW(edit.hwnd, WM_SETTEXT, 0, blank.as_ptr() as LPARAM);
+		let mut edit = self.edit.as_mut().unwrap();
+		edit.set_text(&blank);
 	}
 
 	unsafe fn resize(&mut self) {
