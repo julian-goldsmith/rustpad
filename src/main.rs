@@ -8,6 +8,8 @@ extern crate user32;
 extern crate winapi;
 
 mod main_window;
+mod control;
+mod util;
 
 use std::mem;
 use std::ptr;

@@ -1,19 +1,19 @@
-use std::ffi::{OsStr,OsString};
-use std::iter::once;
+use std::ffi::OsString;
+use std::os::windows::ffi::OsStringExt;
 use std::mem;
-use std::os::windows::ffi::{OsStrExt,OsStringExt};
 use std::ptr;
 use std::io::{Read,Write};
 use std::panic;
 use user32::*;
 use winapi::*;
-use gdi32::*;
 use comdlg32::*;
 use kernel32;
 use std::fs::File;
 use std::path::Path;
 use std::str;
 use std::process;
+use util;
+use control::Edit;
 
 const IDC_EDIT: i32 = 101;
 const IDC_TOOLBAR: i32 = 102;
@@ -25,14 +25,10 @@ const ID_FILE_NEW: i32 = 9002;
 const ID_FILE_OPEN: i32 = 9003;
 const ID_FILE_SAVEAS: i32 = 9004;
 
-fn convert_string(string: &str) -> Vec<u16> {
-	OsStr::new(string).encode_wide().chain(once(0)).collect()
-}
-
 #[derive(Debug)]
 pub struct MainWindow {
 	pub hwnd: HWND,
-	pub edit: HWND,
+	pub edit: Option<Edit>,
 	pub toolbar: HWND,
 	pub status: HWND,
 	pub instance: HINSTANCE,
@@ -46,9 +42,7 @@ impl Drop for MainWindow {
 
 impl MainWindow {
 	unsafe fn get_main_window(hwnd: HWND) -> &'static mut MainWindow {
-		let pointer = (GetWindowLongPtrW(hwnd, 0) as *mut MainWindow);
-		
-		pointer.as_mut().unwrap()
+		(GetWindowLongPtrW(hwnd, 0) as *mut MainWindow).as_mut().unwrap()
 	}
 
 	unsafe extern "system" fn wndproc(hwnd: HWND, msg: UINT, w_param: WPARAM, l_param: LPARAM) -> LRESULT {
@@ -110,8 +104,8 @@ impl MainWindow {
 	unsafe fn open_file(&mut self) {
 		let mut ofn: OPENFILENAMEW = mem::zeroed();
 		let mut filename_buf = [0 as u16; 1024];
-		let filter_text = convert_string("Text Files (*.txt)\0*.txt\0All Files (*.*)\0*.*\0");
-		let default_ext = convert_string("txt");
+		let filter_text = util::convert_string("Text Files (*.txt)\0*.txt\0All Files (*.*)\0*.*\0");
+		let default_ext = util::convert_string("txt");
 		
 		ofn.lStructSize = mem::size_of::<OPENFILENAMEW>() as u32;
 		ofn.hwndOwner = self.hwnd;
@@ -131,16 +125,17 @@ impl MainWindow {
 			
 			file.read_to_string(&mut data).expect("Read file");
 			
-			let text = convert_string(&data);
-			SendMessageW(self.edit, WM_SETTEXT, 0, text.as_ptr() as LPARAM);
+			let text = util::convert_string(&data);
+			let edit = self.edit.as_ref().unwrap();
+			SendMessageW(edit.hwnd, WM_SETTEXT, 0, text.as_ptr() as LPARAM);
 		}
 	}
 
 	unsafe fn save_file(&mut self) {
 		let mut ofn: OPENFILENAMEW = mem::zeroed();
 		let mut filename_buf = [0 as u16; 1024];
-		let filter_text = convert_string("Text Files (*.txt)\0*.txt\0All Files (*.*)\0*.*\0");
-		let default_ext = convert_string("txt");
+		let filter_text = util::convert_string("Text Files (*.txt)\0*.txt\0All Files (*.*)\0*.*\0");
+		let default_ext = util::convert_string("txt");
 		
 		ofn.lStructSize = mem::size_of::<OPENFILENAMEW>() as u32;
 		ofn.hwndOwner = self.hwnd;
@@ -157,7 +152,8 @@ impl MainWindow {
 			let mut file = File::create(&Path::new(&filename)).unwrap();
 			
 			let text_buf = [0 as u16; 4096];
-			SendMessageW(self.edit, WM_GETTEXT, text_buf.len() as u64, text_buf.as_ptr() as LPARAM);
+			let edit = self.edit.as_ref().unwrap();
+			SendMessageW(edit.hwnd, WM_GETTEXT, text_buf.len() as u64, text_buf.as_ptr() as LPARAM);
 			
 			let text_length = kernel32::lstrlenW(ofn.lpstrFile) as usize;
 			let file_text = OsString::from_wide(&text_buf[0..text_length]).to_string_lossy().into_owned();
@@ -167,9 +163,10 @@ impl MainWindow {
 	}
 
 	unsafe fn clear_text(&mut self) {
-		let blank: Vec<u16> = convert_string("");
+		let blank: Vec<u16> = util::convert_string("");
 		
-		SendMessageW(self.edit, WM_SETTEXT, 0, blank.as_ptr() as LPARAM);
+		let edit = self.edit.as_ref().unwrap();
+		SendMessageW(edit.hwnd, WM_SETTEXT, 0, blank.as_ptr() as LPARAM);
 	}
 
 	unsafe fn resize(&mut self) {
@@ -188,7 +185,8 @@ impl MainWindow {
 		let status_height = status_rect.bottom - status_rect.top;
 		let edit_height = rect.bottom - tool_height - status_height;
 		
-		SetWindowPos(self.edit, ptr::null_mut(), 0, tool_height, rect.right, edit_height, SWP_NOZORDER);
+		let edit = self.edit.as_ref().unwrap();
+		SetWindowPos(edit.hwnd, ptr::null_mut(), 0, tool_height, rect.right, edit_height, SWP_NOZORDER);
 	}
 	
 	pub fn show(&self) {
@@ -238,30 +236,8 @@ impl MainWindow {
 		};
 	}
 
-	unsafe fn create_edit(&mut self) {
-		let edit_class: Vec<u16> = convert_string("EDIT");
-		let blank: Vec<u16> = convert_string("");
-		
-		assert_ne!(self.hwnd, ptr::null_mut());
-		
-		self.edit = 
-			CreateWindowExW(WS_EX_CLIENTEDGE, edit_class.as_ptr(), blank.as_ptr(),
-				WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL,
-				CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, 
-				self.hwnd, IDC_EDIT as HMENU, self.instance, ptr::null_mut());
-		
-		if self.edit == ptr::null_mut() {
-			panic!("Couldn't create edit {}", kernel32::GetLastError());
-		};
-		
-		let font = GetStockObject(DEFAULT_GUI_FONT) as HFONT;
-		SendMessageW(self.edit, WM_SETFONT, font as WPARAM, 0);
-		
-		SendMessageW(self.edit, WM_SETTEXT, 0, blank.as_ptr() as LPARAM);
-	}
-
 	unsafe fn create_toolbar(&mut self) {
-		let toolbar_name = convert_string("ToolbarWindow32");
+		let toolbar_name = util::convert_string("ToolbarWindow32");
 		
 		self.toolbar = 
 			CreateWindowExW(0, toolbar_name.as_ptr(), ptr::null_mut(), WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, 
@@ -314,7 +290,7 @@ impl MainWindow {
 	}
 
 	unsafe fn create_status(&mut self) {
-		let statusbar_class = convert_string("msctls_statusbar32");
+		let statusbar_class = util::convert_string("msctls_statusbar32");
 		
 		self.status =
 			CreateWindowExW(0, statusbar_class.as_ptr(), ptr::null_mut(),
@@ -328,7 +304,7 @@ impl MainWindow {
 
 	fn populate_window(&mut self) {
 		unsafe {
-			self.create_edit();
+			self.edit = Some(Edit::new(self.instance, self.hwnd, IDC_EDIT as HMENU));
 			self.create_toolbar();
 			self.create_status();
 		};
@@ -342,14 +318,14 @@ impl MainWindow {
 	
 	pub fn initialize(&mut self) {
 		self.hwnd = 0 as HWND;
-		self.edit = 0 as HWND;
+		self.edit = None;
 		self.toolbar = 0 as HWND;
 		self.status = 0 as HWND;
 		self.class_atom = 0;
 		self.instance = MainWindow::get_current_instance_handle();
 		
-		let class_name: Vec<u16> = convert_string("Rustpad");
-		let window_title: Vec<u16> = convert_string("Rustpad");
+		let class_name: Vec<u16> = util::convert_string("Rustpad");
+		let window_title: Vec<u16> = util::convert_string("Rustpad");
 		
 		unsafe {
 			self.register_window_class(&class_name);
