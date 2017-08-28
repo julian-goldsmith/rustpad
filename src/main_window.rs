@@ -29,6 +29,7 @@ fn convert_string(string: &str) -> Vec<u16> {
 	OsStr::new(string).encode_wide().chain(once(0)).collect()
 }
 
+#[derive(Debug)]
 pub struct MainWindow {
 	pub hwnd: HWND,
 	pub edit: HWND,
@@ -38,10 +39,19 @@ pub struct MainWindow {
 	pub class_atom: ATOM,
 }
 
+impl Drop for MainWindow {
+	fn drop(&mut self) {
+	}
+}
+
 impl MainWindow {
+	unsafe fn get_main_window(hwnd: HWND) -> &'static mut MainWindow {
+		let pointer = (GetWindowLongPtrW(hwnd, 0) as *mut MainWindow);
+		
+		pointer.as_mut().unwrap()
+	}
+
 	unsafe extern "system" fn wndproc(hwnd: HWND, msg: UINT, w_param: WPARAM, l_param: LPARAM) -> LRESULT {
-		println!("wndproc {:?} {:?}", hwnd, msg);
-	
 		let result = panic::catch_unwind(|| {
 			match msg { 
 				WM_CLOSE => { DestroyWindow(hwnd); },
@@ -53,28 +63,23 @@ impl MainWindow {
 					main_window.hwnd = hwnd;
 					
 					SetWindowLongPtrW(hwnd, 0, main_window as *mut MainWindow as LONG_PTR);
-					println!("hwnd {:?} {:?}", hwnd, main_window.hwnd);
 					
 					return TRUE as LRESULT; 
 				},
 				WM_CREATE => {
-					let mut main_window = (GetWindowLongPtrW(hwnd, 0) as *mut MainWindow).as_mut().unwrap();
-					println!("hwnd {:?} {:?}", hwnd, main_window.hwnd);
+					let mut main_window = MainWindow::get_main_window(hwnd);
 					
 					main_window.populate_window();
 				},
 				WM_SIZE => {
-					let mut main_window = (GetWindowLongPtrW(hwnd, 0) as *mut MainWindow).as_mut().unwrap();
-					println!("hwnd {:?} {:?}", hwnd, main_window.hwnd);
-					
-					loop {}; 
-					
-					assert_eq!(main_window.hwnd, hwnd);
+					let mut main_window = MainWindow::get_main_window(hwnd);
 					
 					main_window.resize();
 				},
 				WM_COMMAND => {
-					let mut main_window = (GetWindowLongPtrW(hwnd, 0) as *mut MainWindow).as_mut().unwrap();
+					let mut main_window = MainWindow::get_main_window(hwnd);
+					
+					assert_eq!(hwnd, main_window.hwnd);
 					
 					match LOWORD(w_param as u32) as i32 {
 						ID_FILE_EXIT => { PostMessageW(hwnd, WM_CLOSE, 0, 0); },
@@ -183,8 +188,6 @@ impl MainWindow {
 		let status_height = status_rect.bottom - status_rect.top;
 		let edit_height = rect.bottom - tool_height - status_height;
 		
-		println!("Edit height {} {} {} {}", edit_height, tool_height, status_height, rect.bottom);
-		
 		SetWindowPos(self.edit, ptr::null_mut(), 0, tool_height, rect.right, edit_height, SWP_NOZORDER);
 	}
 	
@@ -195,109 +198,87 @@ impl MainWindow {
 		};
 	}
 
-	pub fn register_window_class(&mut self, class_name: &Vec<u16>) {
-		self.class_atom = unsafe {
-			let wc = WNDCLASSEXW {
-				cbSize: mem::size_of::<WNDCLASSEXW>() as UINT,
-				style: 0,
-				lpfnWndProc: Some(MainWindow::wndproc),
-				cbClsExtra: 0,
-				cbWndExtra: mem::size_of::<*mut MainWindow>() as i32,
-				hInstance: self.instance,
-				hIcon: LoadIconW(ptr::null_mut(), IDI_APPLICATION),
-				hCursor: LoadCursorW(ptr::null_mut(), IDC_ARROW),
-				hbrBackground: (COLOR_WINDOW + 1) as HBRUSH,
-				lpszMenuName: ptr::null_mut(),
-				lpszClassName: class_name.as_ptr(),
-				hIconSm: LoadIconW(ptr::null_mut(), IDI_APPLICATION),
-			};
-
-			RegisterClassExW(&wc)
+	pub unsafe fn register_window_class(&mut self, class_name: &Vec<u16>) {
+		let wc = WNDCLASSEXW {
+			cbSize: mem::size_of::<WNDCLASSEXW>() as UINT,
+			style: 0,
+			lpfnWndProc: Some(MainWindow::wndproc),
+			cbClsExtra: 0,
+			cbWndExtra: mem::size_of::<*mut MainWindow>() as i32,
+			hInstance: self.instance,
+			hIcon: LoadIconW(ptr::null_mut(), IDI_APPLICATION),
+			hCursor: LoadCursorW(ptr::null_mut(), IDC_ARROW),
+			hbrBackground: (COLOR_WINDOW + 1) as HBRUSH,
+			lpszMenuName: ptr::null_mut(),
+			lpszClassName: class_name.as_ptr(),
+			hIconSm: LoadIconW(ptr::null_mut(), IDI_APPLICATION),
 		};
+
+		self.class_atom = RegisterClassExW(&wc);
 		
 		if self.class_atom == 0 {
-			panic!("Couldn't register class");
+			panic!("Couldn't register class: {:?}", kernel32::GetLastError());
 		};
 	}
 
-	pub fn create_window(&mut self, window_title: &Vec<u16>) {
-		let hmenu = unsafe {
-			LoadMenuW(self.instance, ID_MENU as WORD as ULONG_PTR as LPWSTR)
-		};
+	pub unsafe fn create_window(&mut self, window_title: &Vec<u16>) {
+		let hmenu = LoadMenuW(self.instance, ID_MENU as WORD as ULONG_PTR as LPWSTR);
 		
 		if hmenu == ptr::null_mut() {
-			let error = unsafe {
-				kernel32::GetLastError()
-			};
-			
-			panic!("Couldn't create hmenu: {:?}", error);
+			panic!("Couldn't create hmenu: {:?}", kernel32::GetLastError());
 		};
 		
-		unsafe {
-			CreateWindowExW(
-				0, self.class_atom as LPCWSTR, window_title.as_ptr(),
-				WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, CW_USEDEFAULT, CW_USEDEFAULT, 480, 320,
-				ptr::null_mut(), hmenu, self.instance, self as *mut MainWindow as LPVOID)
-		};
+		CreateWindowExW(
+			0, self.class_atom as LPCWSTR, window_title.as_ptr(),
+			WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, CW_USEDEFAULT, CW_USEDEFAULT, 480, 320,
+			ptr::null_mut(), hmenu, self.instance, self as *mut MainWindow as LPVOID);
 		
 		if self.hwnd == ptr::null_mut() {
-			let error = unsafe {
-				kernel32::GetLastError()
-			};
-			
-			panic!("Couldn't create window: {:?}", error);
+			panic!("Couldn't create window: {:?}", kernel32::GetLastError());
 		};
 	}
 
-	fn create_edit(&mut self) {
+	unsafe fn create_edit(&mut self) {
 		let edit_class: Vec<u16> = convert_string("EDIT");
 		let blank: Vec<u16> = convert_string("");
 		
 		assert_ne!(self.hwnd, ptr::null_mut());
 		
-		self.edit = unsafe {
+		self.edit = 
 			CreateWindowExW(WS_EX_CLIENTEDGE, edit_class.as_ptr(), blank.as_ptr(),
 				WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL,
 				CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, 
-				self.hwnd, IDC_EDIT as HMENU, self.instance, ptr::null_mut())
-		};
+				self.hwnd, IDC_EDIT as HMENU, self.instance, ptr::null_mut());
 		
 		if self.edit == ptr::null_mut() {
-			panic!("Couldn't create edit {}", unsafe { kernel32::GetLastError() });
+			panic!("Couldn't create edit {}", kernel32::GetLastError());
 		};
 		
-		unsafe {
-			let font = GetStockObject(DEFAULT_GUI_FONT) as HFONT;
-			SendMessageW(self.edit, WM_SETFONT, font as WPARAM, 0);
+		let font = GetStockObject(DEFAULT_GUI_FONT) as HFONT;
+		SendMessageW(self.edit, WM_SETFONT, font as WPARAM, 0);
 		
-			SendMessageW(self.edit, WM_SETTEXT, 0, blank.as_ptr() as LPARAM);
-		};
+		SendMessageW(self.edit, WM_SETTEXT, 0, blank.as_ptr() as LPARAM);
 	}
 
-	fn create_toolbar(&mut self) {
+	unsafe fn create_toolbar(&mut self) {
 		let toolbar_name = convert_string("ToolbarWindow32");
 		
-		self.toolbar = unsafe {
+		self.toolbar = 
 			CreateWindowExW(0, toolbar_name.as_ptr(), ptr::null_mut(), WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, 
-				self.hwnd, IDC_TOOLBAR as HMENU, self.instance, ptr::null_mut())
-		};
+				self.hwnd, IDC_TOOLBAR as HMENU, self.instance, ptr::null_mut());
 		
 		if self.toolbar == ptr::null_mut() {
 			panic!("Couldn't create toolbar");
 		};
 		
-		unsafe {
-			SendMessageW(self.toolbar, TB_BUTTONSTRUCTSIZE, mem::size_of::<commctrl::TBBUTTON>() as WPARAM, 0);
-		};
+		SendMessageW(self.toolbar, TB_BUTTONSTRUCTSIZE, mem::size_of::<commctrl::TBBUTTON>() as WPARAM, 0);
 		
 		let tbab = TBADDBITMAP {
 			hInst: -1 as i64 as HINSTANCE,//HINST_COMMCTRL,
 			nID: IDB_STD_SMALL_COLOR,
 		};
 		
-		unsafe {
-			SendMessageW(self.toolbar, TB_ADDBITMAP, 0, &tbab as *const TBADDBITMAP as LPARAM)
-		};
+		SendMessageW(self.toolbar, TB_ADDBITMAP, 0, &tbab as *const TBADDBITMAP as LPARAM);
 		
 		let tbb: [TBBUTTON; 3] = [
 			TBBUTTON {
@@ -328,31 +309,29 @@ impl MainWindow {
 				iString: 0,
 			},
 		];
-			
-		unsafe {
-			SendMessageW(self.toolbar, TB_ADDBUTTONSW, tbb.len() as u64, tbb.as_ptr() as LPARAM);
-		};
+		
+		SendMessageW(self.toolbar, TB_ADDBUTTONSW, tbb.len() as u64, tbb.as_ptr() as LPARAM);
 	}
 
-	fn create_status(&mut self) {
+	unsafe fn create_status(&mut self) {
 		let statusbar_class = convert_string("msctls_statusbar32");
 		
-		unsafe {
-			self.status =
-				CreateWindowExW(0, statusbar_class.as_ptr(), ptr::null_mut(),
-					WS_CHILD | WS_VISIBLE | SBARS_SIZEGRIP, 0, 0, 0, 0,
-					self.hwnd, IDC_MAIN_STATUS as HMENU, self.instance, ptr::null_mut());
-		
-			if self.status == ptr::null_mut() {
-				panic!("Couldn't create status");
-			};
+		self.status =
+			CreateWindowExW(0, statusbar_class.as_ptr(), ptr::null_mut(),
+				WS_CHILD | WS_VISIBLE | SBARS_SIZEGRIP, 0, 0, 0, 0,
+				self.hwnd, IDC_MAIN_STATUS as HMENU, self.instance, ptr::null_mut());
+	
+		if self.status == ptr::null_mut() {
+			panic!("Couldn't create status");
 		};
 	}
 
 	fn populate_window(&mut self) {
-		self.create_edit();
-		self.create_toolbar();
-		self.create_status();
+		unsafe {
+			self.create_edit();
+			self.create_toolbar();
+			self.create_status();
+		};
 	}
 
 	fn get_current_instance_handle() -> HINSTANCE {
@@ -361,23 +340,21 @@ impl MainWindow {
 		}
 	}
 	
-	pub fn new() -> MainWindow {
+	pub fn initialize(&mut self) {
+		self.hwnd = 0 as HWND;
+		self.edit = 0 as HWND;
+		self.toolbar = 0 as HWND;
+		self.status = 0 as HWND;
+		self.class_atom = 0;
+		self.instance = MainWindow::get_current_instance_handle();
+		
 		let class_name: Vec<u16> = convert_string("Rustpad");
 		let window_title: Vec<u16> = convert_string("Rustpad");
 		
-		let mut window = MainWindow {
-			hwnd: 0 as HWND,
-			edit: 0 as HWND,
-			toolbar: 0 as HWND,
-			status: 0 as HWND,
-			class_atom: 0,
-			instance: MainWindow::get_current_instance_handle(),
+		unsafe {
+			self.register_window_class(&class_name);
+			
+			self.create_window(&window_title);
 		};
-	
-		window.register_window_class(&class_name);
-		
-		window.create_window(&window_title);
-		
-		window
 	}
 }

@@ -27,16 +27,20 @@ extern "system" {
 }
 
 fn main() {
-	unsafe {
+	let (main_window_ptr, main_window) = unsafe {
 		let icc = INITCOMMONCONTROLSEX {
 			dwSize: mem::size_of::<INITCOMMONCONTROLSEX>() as u32,
 			dwICC: ICC_BAR_CLASSES | ICC_COOL_CLASSES,
 		};
 		
 		comctl32::InitCommonControlsEx(&icc);
+		
+		let main_window_ptr = kernel32::LocalAlloc(0, mem::size_of::<MainWindow>() as u64) as *mut MainWindow;
+		
+		(main_window_ptr, main_window_ptr.as_mut().unwrap())
 	};
 	
-	let main_window = MainWindow::new();
+	main_window.initialize();
 	main_window.show();
 	
 	let accel = unsafe {
@@ -50,7 +54,7 @@ fn main() {
 		
 		panic!("Couldn't create accel: {:?}", error);
 	};
-		
+	
 	unsafe {
 		let mut msg: MSG = mem::uninitialized();
 		
@@ -60,5 +64,10 @@ fn main() {
 				DispatchMessageW(&msg);
 			};
 		};
+	};
+	
+	unsafe {
+		ptr::drop_in_place(main_window_ptr);
+		kernel32::LocalFree(main_window_ptr as HLOCAL);
 	};
 }
