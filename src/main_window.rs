@@ -13,7 +13,7 @@ use std::path::Path;
 use std::str;
 use std::process;
 use util;
-use control::{Control,Edit,Statusbar};
+use control::{Control,Edit,Statusbar,Toolbar};
 
 const IDC_EDIT: i32 = 101;
 const IDC_TOOLBAR: i32 = 102;
@@ -29,7 +29,7 @@ const ID_FILE_SAVEAS: i32 = 9004;
 pub struct MainWindow {
 	pub hwnd: HWND,
 	pub edit: Option<Edit>,
-	pub toolbar: HWND,
+	pub toolbar: Option<Toolbar>,
 	pub status: Option<Statusbar>,
 	pub instance: HINSTANCE,
 	pub class_atom: ATOM,
@@ -174,15 +174,13 @@ impl MainWindow {
 	unsafe fn resize(&mut self) {
 		let rect = self.get_size();
 		
-		let mut tool_rect: RECT = mem::uninitialized();
-		SendMessageW(self.toolbar, WM_SIZE, 0, 0);
-		GetWindowRect(self.toolbar, &mut tool_rect);
-		
+		let mut toolbar = self.toolbar.as_mut().unwrap();
 		let mut status = self.status.as_mut().unwrap();
+		toolbar.resize();
 		status.resize();
-		status.set_text(&util::convert_string("Status bar"));
 		
 		let status_rect = status.get_size();
+		let tool_rect: RECT = toolbar.get_size();
 		
 		let tool_height = tool_rect.bottom - tool_rect.top;
 		let status_height = status_rect.bottom - status_rect.top;
@@ -239,64 +237,14 @@ impl MainWindow {
 		};
 	}
 
-	unsafe fn create_toolbar(&mut self) {
-		let toolbar_name = util::convert_string("ToolbarWindow32");
-		
-		self.toolbar = 
-			CreateWindowExW(0, toolbar_name.as_ptr(), ptr::null_mut(), WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, 
-				self.hwnd, IDC_TOOLBAR as HMENU, self.instance, ptr::null_mut());
-		
-		if self.toolbar == ptr::null_mut() {
-			panic!("Couldn't create toolbar");
-		};
-		
-		SendMessageW(self.toolbar, TB_BUTTONSTRUCTSIZE, mem::size_of::<commctrl::TBBUTTON>() as WPARAM, 0);
-		
-		let tbab = TBADDBITMAP {
-			hInst: -1 as i64 as HINSTANCE,//HINST_COMMCTRL,
-			nID: IDB_STD_SMALL_COLOR,
-		};
-		
-		SendMessageW(self.toolbar, TB_ADDBITMAP, 0, &tbab as *const TBADDBITMAP as LPARAM);
-		
-		let tbb: [TBBUTTON; 3] = [
-			TBBUTTON {
-				iBitmap: STD_FILENEW,
-				idCommand: ID_FILE_NEW,
-				fsState: TBSTATE_ENABLED,
-				fsStyle: TBSTYLE_BUTTON as u8,
-				bReserved: [0; 6],
-				dwData: 0,
-				iString: 0,
-			},
-			TBBUTTON {
-				iBitmap: STD_FILEOPEN,
-				idCommand: ID_FILE_OPEN,
-				fsState: TBSTATE_ENABLED,
-				fsStyle: TBSTYLE_BUTTON as u8,
-				bReserved: [0; 6],
-				dwData: 0,
-				iString: 0,
-			},
-			TBBUTTON {
-				iBitmap: STD_FILESAVE,
-				idCommand: ID_FILE_SAVEAS,
-				fsState: TBSTATE_ENABLED,
-				fsStyle: TBSTYLE_BUTTON as u8,
-				bReserved: [0; 6],
-				dwData: 0,
-				iString: 0,
-			},
-		];
-		
-		SendMessageW(self.toolbar, TB_ADDBUTTONSW, tbb.len() as u64, tbb.as_ptr() as LPARAM);
-	}
-
 	fn populate_window(&mut self) {
 		unsafe {
 			self.edit = Some(Edit::new(self.instance, self.hwnd, IDC_EDIT as HMENU));
-			self.create_toolbar();
+			self.toolbar = Some(Toolbar::new(self.instance, self.hwnd, IDC_TOOLBAR as HMENU));
 			self.status = Some(Statusbar::new(self.instance, self.hwnd, IDC_STATUS as HMENU));
+			
+			let status = self.status.as_mut().unwrap();
+			status.set_text(&util::convert_string("Status bar"));
 		};
 	}
 
@@ -309,7 +257,7 @@ impl MainWindow {
 	pub fn initialize(&mut self) {
 		self.hwnd = 0 as HWND;
 		self.edit = None;
-		self.toolbar = 0 as HWND;
+		self.toolbar = None;
 		self.status = None;
 		self.class_atom = 0;
 		self.instance = MainWindow::get_current_instance_handle();
