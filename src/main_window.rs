@@ -13,11 +13,11 @@ use std::path::Path;
 use std::str;
 use std::process;
 use util;
-use control::Edit;
+use control::{Control,Edit,Statusbar};
 
 const IDC_EDIT: i32 = 101;
 const IDC_TOOLBAR: i32 = 102;
-const IDC_MAIN_STATUS: i32 = 104;
+const IDC_STATUS: i32 = 104;
 
 const ID_MENU: HMENU = 9000 as HMENU;
 const ID_FILE_EXIT: i32 = 9001;
@@ -30,7 +30,7 @@ pub struct MainWindow {
 	pub hwnd: HWND,
 	pub edit: Option<Edit>,
 	pub toolbar: HWND,
-	pub status: HWND,
+	pub status: Option<Statusbar>,
 	pub instance: HINSTANCE,
 	pub class_atom: ATOM,
 }
@@ -164,18 +164,25 @@ impl MainWindow {
 		let mut edit = self.edit.as_mut().unwrap();
 		edit.set_text(&blank);
 	}
-
-	unsafe fn resize(&mut self) {
+	
+	unsafe fn get_size(&self) -> RECT{
 		let mut rect: RECT = mem::uninitialized();
 		GetClientRect(self.hwnd, &mut rect);
+		rect
+	}
+
+	unsafe fn resize(&mut self) {
+		let rect = self.get_size();
 		
 		let mut tool_rect: RECT = mem::uninitialized();
 		SendMessageW(self.toolbar, WM_SIZE, 0, 0);
 		GetWindowRect(self.toolbar, &mut tool_rect);
 		
-		let mut status_rect: RECT = mem::uninitialized();
-		SendMessageW(self.status, WM_SIZE, 0, 0);
-		GetWindowRect(self.status, &mut status_rect);
+		let mut status = self.status.as_mut().unwrap();
+		status.resize();
+		status.set_text(&util::convert_string("Status bar"));
+		
+		let status_rect = status.get_size();
 		
 		let tool_height = tool_rect.bottom - tool_rect.top;
 		let status_height = status_rect.bottom - status_rect.top;
@@ -285,24 +292,11 @@ impl MainWindow {
 		SendMessageW(self.toolbar, TB_ADDBUTTONSW, tbb.len() as u64, tbb.as_ptr() as LPARAM);
 	}
 
-	unsafe fn create_status(&mut self) {
-		let statusbar_class = util::convert_string("msctls_statusbar32");
-		
-		self.status =
-			CreateWindowExW(0, statusbar_class.as_ptr(), ptr::null_mut(),
-				WS_CHILD | WS_VISIBLE | SBARS_SIZEGRIP, 0, 0, 0, 0,
-				self.hwnd, IDC_MAIN_STATUS as HMENU, self.instance, ptr::null_mut());
-	
-		if self.status == ptr::null_mut() {
-			panic!("Couldn't create status");
-		};
-	}
-
 	fn populate_window(&mut self) {
 		unsafe {
 			self.edit = Some(Edit::new(self.instance, self.hwnd, IDC_EDIT as HMENU));
 			self.create_toolbar();
-			self.create_status();
+			self.status = Some(Statusbar::new(self.instance, self.hwnd, IDC_STATUS as HMENU));
 		};
 	}
 
@@ -316,7 +310,7 @@ impl MainWindow {
 		self.hwnd = 0 as HWND;
 		self.edit = None;
 		self.toolbar = 0 as HWND;
-		self.status = 0 as HWND;
+		self.status = None;
 		self.class_atom = 0;
 		self.instance = MainWindow::get_current_instance_handle();
 		
