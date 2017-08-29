@@ -25,6 +25,41 @@ const ID_FILE_NEW: i32 = 9002;
 const ID_FILE_OPEN: i32 = 9003;
 const ID_FILE_SAVEAS: i32 = 9004;
 
+const tbab: TBADDBITMAP = TBADDBITMAP {
+	hInst: -1 as i64 as HINSTANCE,//HINST_COMMCTRL,
+	nID: IDB_STD_SMALL_COLOR,
+};
+
+const tbb: [TBBUTTON; 3] = [
+	TBBUTTON {
+		iBitmap: STD_FILENEW,
+		idCommand: ID_FILE_NEW,
+		fsState: TBSTATE_ENABLED,
+		fsStyle: TBSTYLE_BUTTON as u8,
+		bReserved: [0; 6],
+		dwData: 0,
+		iString: 0,
+	},
+	TBBUTTON {
+		iBitmap: STD_FILEOPEN,
+		idCommand: ID_FILE_OPEN,
+		fsState: TBSTATE_ENABLED,
+		fsStyle: TBSTYLE_BUTTON as u8,
+		bReserved: [0; 6],
+		dwData: 0,
+		iString: 0,
+	},
+	TBBUTTON {
+		iBitmap: STD_FILESAVE,
+		idCommand: ID_FILE_SAVEAS,
+		fsState: TBSTATE_ENABLED,
+		fsStyle: TBSTYLE_BUTTON as u8,
+		bReserved: [0; 6],
+		dwData: 0,
+		iString: 0,
+	},
+];
+
 #[derive(Debug)]
 pub struct MainWindow {
 	pub hwnd: HWND,
@@ -242,6 +277,10 @@ impl MainWindow {
 			self.edit = Some(Edit::new(self.instance, self.hwnd, IDC_EDIT as HMENU));
 			self.toolbar = Some(Toolbar::new(self.instance, self.hwnd, IDC_TOOLBAR as HMENU));
 			self.status = Some(Statusbar::new(self.instance, self.hwnd, IDC_STATUS as HMENU));
+			
+			let toolbar = self.toolbar.as_mut().unwrap();
+			toolbar.add_bitmap(&tbab);
+			toolbar.add_buttons(&tbb);
 			
 			let status = self.status.as_mut().unwrap();
 			status.set_text(&util::convert_string("Status bar"));
