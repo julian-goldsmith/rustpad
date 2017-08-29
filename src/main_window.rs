@@ -12,8 +12,9 @@ use std::fs::File;
 use std::path::Path;
 use std::str;
 use std::process;
-use util;
 use control::{Control,Edit,Statusbar,Toolbar};
+use dialogs;
+use util;
 
 const IDC_EDIT: i32 = 101;
 const IDC_TOOLBAR: i32 = 102;
@@ -136,33 +137,29 @@ impl MainWindow {
 		}
 	}
 
-	unsafe fn open_file(&mut self) {
-		let mut ofn: OPENFILENAMEW = mem::zeroed();
-		let mut filename_buf = [0 as u16; 1024];
-		let filter_text = util::convert_string("Text Files (*.txt)\0*.txt\0All Files (*.*)\0*.*\0");
-		let default_ext = util::convert_string("txt");
+	unsafe fn open_file(&mut self) {		
+		let filename = match dialogs::open_file(self.hwnd) {
+			None => return,
+			Some(filename) => filename,
+		};
 		
-		ofn.lStructSize = mem::size_of::<OPENFILENAMEW>() as u32;
-		ofn.hwndOwner = self.hwnd;
-		ofn.lpstrFilter = filter_text.as_ptr();
-		ofn.lpstrFile = filename_buf.as_mut_ptr();
-		ofn.nMaxFile = filename_buf.len() as u32;
-		ofn.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
-		ofn.lpstrDefExt = default_ext.as_ptr();
+		let file = kernel32::CreateFileW(
+			filename.as_ptr(), GENERIC_READ, FILE_SHARE_READ, ptr::null_mut(),
+			OPEN_EXISTING, 0, ptr::null_mut());
+			
+		let mut data: [wchar_t; 4096] = [0 as wchar_t; 4096];
+		let mut bytes_read = 0 as DWORD;
 		
-		if GetOpenFileNameW(&mut ofn) != FALSE {
-			// load edit
-			let filename_length = kernel32::lstrlenW(ofn.lpstrFile) as usize;
-			let filename = OsString::from_wide(&filename_buf[0..filename_length]).to_string_lossy().into_owned();
-			let mut file = File::open(&Path::new(&filename)).unwrap();
-			
-			let mut data = String::new();
-			
-			file.read_to_string(&mut data).expect("Read file");
-			
-			let mut edit = self.edit.as_mut().unwrap();
-			edit.set_text(&util::convert_string(&data));
+		// FIXME: we need to take character encoding into account here
+		if kernel32::ReadFile(file, data.as_mut_ptr() as LPVOID, data.len() as DWORD, 
+				&mut bytes_read as LPDWORD, ptr::null_mut()) != TRUE {
+			panic!("Read failed: {}", kernel32::GetLastError());
 		}
+			
+		kernel32::CloseHandle(file);
+		
+		let mut edit = self.edit.as_mut().unwrap();
+		edit.set_text(&data);
 	}
 
 	unsafe fn save_file(&mut self) {

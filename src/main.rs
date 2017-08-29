@@ -7,8 +7,9 @@ extern crate kernel32;
 extern crate user32;
 extern crate winapi;
 
-mod main_window;
 mod control;
+mod dialogs;
+mod main_window;
 mod util;
 
 use std::mem;
