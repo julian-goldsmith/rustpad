@@ -158,8 +158,14 @@ impl MainWindow {
 			
 		kernel32::CloseHandle(file);
 		
+		let mut chars: [wchar_t; 4096] = mem::uninitialized();
+		if kernel32::MultiByteToWideChar(CP_UTF8, 0, data.as_ptr() as LPCSTR, 
+				bytes_read as c_int, chars.as_mut_ptr() as LPWSTR, chars.len() as c_int) == 0 {
+			panic!("Character convert failed: {}", kernel32::GetLastError());
+		};
+		
 		let mut edit = self.edit.as_mut().unwrap();
-		edit.set_text(&data);
+		edit.set_text(&chars);
 	}
 
 	unsafe fn save_file(&mut self) {
