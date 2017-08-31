@@ -40,17 +40,6 @@ impl Statusbar {
 			user32::SendMessageW(self.hwnd, WM_SETTEXT, 0, text.as_ptr() as LPARAM);
 		};
 	}
-	
-	pub fn get_text(&self) -> Vec<u16> {
-		unsafe {
-			let text_buf = [0 as u16; 4096];
-			user32::SendMessageW(self.hwnd, WM_GETTEXT, text_buf.len() as u64, text_buf.as_ptr() as LPARAM);
-			
-			let text_length = kernel32::lstrlenW(text_buf.as_ptr()) as usize;
-			
-			text_buf[0..text_length].to_vec()
-		}
-	}
 }
 
 impl Control for Statusbar {

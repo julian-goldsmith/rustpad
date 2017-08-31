@@ -1,5 +1,4 @@
 use std::mem;
-use user32::*;
 use winapi::*;
 use comdlg32::*;
 use kernel32;

@@ -2,7 +2,6 @@ use std::mem;
 use std::ptr;
 use winapi::*;
 use user32;
-use kernel32;
 use util;
 use control::Control;
 
@@ -17,7 +16,7 @@ impl Toolbar {
 		
 		let toolbar_name = util::convert_string("ToolbarWindow32");
 		
-		let mut tool = Toolbar {
+		let tool = Toolbar {
 			hwnd: unsafe {
 				user32::CreateWindowExW(0, toolbar_name.as_ptr(), ptr::null_mut(), 
 					WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, 

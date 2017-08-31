@@ -2,7 +2,7 @@ use std::ffi::OsString;
 use std::os::windows::ffi::OsStringExt;
 use std::mem;
 use std::ptr;
-use std::io::{Read,Write};
+use std::io::Write;
 use std::panic;
 use user32::*;
 use winapi::*;
@@ -26,12 +26,12 @@ const ID_FILE_NEW: i32 = 9002;
 const ID_FILE_OPEN: i32 = 9003;
 const ID_FILE_SAVEAS: i32 = 9004;
 
-const tbab: TBADDBITMAP = TBADDBITMAP {
+const TBAB: TBADDBITMAP = TBADDBITMAP {
 	hInst: -1 as i64 as HINSTANCE,//HINST_COMMCTRL,
 	nID: IDB_STD_SMALL_COLOR,
 };
 
-const tbb: [TBBUTTON; 3] = [
+const TBB: [TBBUTTON; 3] = [
 	TBBUTTON {
 		iBitmap: STD_FILENEW,
 		idCommand: ID_FILE_NEW,
@@ -276,18 +276,16 @@ impl MainWindow {
 	}
 
 	fn populate_window(&mut self) {
-		unsafe {
-			self.edit = Some(Edit::new(self.instance, self.hwnd, IDC_EDIT as HMENU));
-			self.toolbar = Some(Toolbar::new(self.instance, self.hwnd, IDC_TOOLBAR as HMENU));
-			self.status = Some(Statusbar::new(self.instance, self.hwnd, IDC_STATUS as HMENU));
-			
-			let toolbar = self.toolbar.as_mut().unwrap();
-			toolbar.add_bitmap(&tbab);
-			toolbar.add_buttons(&tbb);
-			
-			let status = self.status.as_mut().unwrap();
-			status.set_text(&util::convert_string("Status bar"));
-		};
+		self.edit = Some(Edit::new(self.instance, self.hwnd, IDC_EDIT as HMENU));
+		self.toolbar = Some(Toolbar::new(self.instance, self.hwnd, IDC_TOOLBAR as HMENU));
+		self.status = Some(Statusbar::new(self.instance, self.hwnd, IDC_STATUS as HMENU));
+		
+		let toolbar = self.toolbar.as_mut().unwrap();
+		toolbar.add_bitmap(&TBAB);
+		toolbar.add_buttons(&TBB);
+		
+		let status = self.status.as_mut().unwrap();
+		status.set_text(&util::convert_string("Status bar"));
 	}
 
 	fn get_current_instance_handle() -> HINSTANCE {
