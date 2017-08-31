@@ -10,6 +10,7 @@ use comdlg32::*;
 use kernel32;
 use std::fs::File;
 use std::path::Path;
+use std::slice;
 use std::str;
 use std::process;
 use control::{Control,Edit,Statusbar,Toolbar};
@@ -147,25 +148,35 @@ impl MainWindow {
 			filename.as_ptr(), GENERIC_READ, FILE_SHARE_READ, ptr::null_mut(),
 			OPEN_EXISTING, 0, ptr::null_mut());
 			
-		let mut data: [wchar_t; 4096] = [0 as wchar_t; 4096];
+		if file == INVALID_HANDLE_VALUE {
+			let filename_converted = OsString::from_wide(&filename).to_string_lossy().into_owned();
+			panic!("Open file \"{}\" failed: {}", filename_converted, kernel32::GetLastError());
+		}
+		
+		let file_size = kernel32::GetFileSize(file, ptr::null_mut());			// right now we don't support files > 4GB
+		
+		let mut data = kernel32::LocalAlloc(0, file_size as SIZE_T) as LPSTR;
 		let mut bytes_read = 0 as DWORD;
 		
-		// FIXME: we need to take character encoding into account here
-		if kernel32::ReadFile(file, data.as_mut_ptr() as LPVOID, data.len() as DWORD, 
-				&mut bytes_read as LPDWORD, ptr::null_mut()) != TRUE {
+		// FIXME: we need to load files longer than the buffer
+		if kernel32::ReadFile(file, data as LPVOID, file_size as DWORD,
+				&mut bytes_read as LPDWORD, ptr::null_mut()) == FALSE {
 			panic!("Read failed: {}", kernel32::GetLastError());
-		}
-			
+		};
+		
 		kernel32::CloseHandle(file);
 		
-		let mut chars: [wchar_t; 4096] = mem::uninitialized();
-		if kernel32::MultiByteToWideChar(CP_UTF8, 0, data.as_ptr() as LPCSTR, 
-				bytes_read as c_int, chars.as_mut_ptr() as LPWSTR, chars.len() as c_int) == 0 {
+		let chars = kernel32::LocalAlloc(0, bytes_read as SIZE_T * 2) as LPWSTR;
+		if kernel32::MultiByteToWideChar(CP_UTF8, 0, data as LPCSTR, 
+				bytes_read as c_int, chars, bytes_read as c_int) == 0 {
 			panic!("Character convert failed: {}", kernel32::GetLastError());
 		};
 		
+		kernel32::LocalFree(data as HLOCAL);
+		
 		let mut edit = self.edit.as_mut().unwrap();
-		edit.set_text(&chars);
+		edit.set_text(slice::from_raw_parts(chars, bytes_read as usize));
+		kernel32::LocalFree(chars as HLOCAL);
 	}
 
 	unsafe fn save_file(&mut self) {

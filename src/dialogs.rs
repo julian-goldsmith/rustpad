@@ -22,7 +22,7 @@ pub unsafe fn open_file(parent: HWND) -> Option<Vec<wchar_t>> {
 		FALSE => None,
 		_ => {
 			let filename_length = kernel32::lstrlenW(ofn.lpstrFile) as usize;
-			let filename = (&filename_buf[0..filename_length]).to_vec();
+			let filename = (&filename_buf[0..filename_length + 1]).to_vec();
 			Some(filename)
 		},
 	}
