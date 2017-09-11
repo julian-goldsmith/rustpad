@@ -2,14 +2,10 @@ use std::ffi::OsString;
 use std::os::windows::ffi::OsStringExt;
 use std::mem;
 use std::ptr;
-use std::io::Write;
 use std::panic;
 use user32::*;
 use winapi::*;
-use comdlg32::*;
 use kernel32;
-use std::fs::File;
-use std::path::Path;
 use std::slice;
 use std::str;
 use std::process;
@@ -138,8 +134,8 @@ impl MainWindow {
 		}
 	}
 
-	unsafe fn open_file(&mut self) {		
-		let filename = match dialogs::open_file(self.hwnd) {
+	unsafe fn open_file(&mut self) {
+		let filename = match dialogs::open_file_dialog(self.hwnd) {
 			None => return,
 			Some(filename) => filename,
 		};
@@ -155,7 +151,7 @@ impl MainWindow {
 		
 		let file_size = kernel32::GetFileSize(file, ptr::null_mut());			// right now we don't support files > 4GB
 		
-		let mut data = kernel32::LocalAlloc(0, file_size as SIZE_T) as LPSTR;
+		let data = kernel32::LocalAlloc(0, file_size as SIZE_T) as LPSTR;
 		let mut bytes_read = 0 as DWORD;
 		
 		// FIXME: we need to load files longer than the buffer
@@ -168,7 +164,7 @@ impl MainWindow {
 		
 		let chars = kernel32::LocalAlloc(0, bytes_read as SIZE_T * 2) as LPWSTR;
 		if kernel32::MultiByteToWideChar(CP_UTF8, 0, data as LPCSTR, 
-				bytes_read as c_int, chars, bytes_read as c_int) == 0 {
+				bytes_read as c_int, chars, bytes_read as c_int) == FALSE {
 			panic!("Character convert failed: {}", kernel32::GetLastError());
 		};
 		
@@ -180,31 +176,39 @@ impl MainWindow {
 	}
 
 	unsafe fn save_file(&mut self) {
-		let mut ofn: OPENFILENAMEW = mem::zeroed();
-		let mut filename_buf = [0 as u16; 1024];
-		let filter_text = util::convert_string("Text Files (*.txt)\0*.txt\0All Files (*.*)\0*.*\0");
-		let default_ext = util::convert_string("txt");
+		let filename = match dialogs::save_file_dialog(self.hwnd) {
+			None => return,
+			Some(filename) => filename,
+		};
 		
-		ofn.lStructSize = mem::size_of::<OPENFILENAMEW>() as u32;
-		ofn.hwndOwner = self.hwnd;
-		ofn.lpstrFilter = filter_text.as_ptr();
-		ofn.lpstrFile = filename_buf.as_mut_ptr();
-		ofn.nMaxFile = filename_buf.len() as u32;
-		ofn.Flags = OFN_EXPLORER | OFN_HIDEREADONLY;
-		ofn.lpstrDefExt = default_ext.as_ptr();
-		
-		if GetSaveFileNameW(&mut ofn) != FALSE {
-			// load edit
-			let filename_length = kernel32::lstrlenW(ofn.lpstrFile) as usize;
-			let filename = OsString::from_wide(&filename_buf[0..filename_length]).to_string_lossy().into_owned();
-			let mut file = File::create(&Path::new(&filename)).unwrap();
+		let file = kernel32::CreateFileW(
+			filename.as_ptr(), GENERIC_WRITE, FILE_SHARE_READ, ptr::null_mut(),
+			CREATE_ALWAYS, 0, ptr::null_mut());
 			
-			let edit = self.edit.as_ref().unwrap();
-			let text = edit.get_text();
-			let file_text = OsString::from_wide(&text).to_string_lossy().into_owned();
-			
-			file.write_all(&file_text.as_bytes()).expect("Write file");
+		if file == INVALID_HANDLE_VALUE {
+			let filename_converted = OsString::from_wide(&filename).to_string_lossy().into_owned();
+			panic!("Open file \"{}\" failed: {}", filename_converted, kernel32::GetLastError());
 		}
+		
+		let edit = self.edit.as_mut().unwrap();
+		let utf16_text = edit.get_text();
+		
+		let utf8_text = kernel32::LocalAlloc(0, utf16_text.len() as SIZE_T * 2);					// FIXME: handle if the text is bigger than this
+		let utf8_len = kernel32::WideCharToMultiByte(CP_UTF8, 0, utf16_text.as_ptr() as LPCWSTR, 
+			utf16_text.len() as c_int, utf8_text as LPSTR, 2 * utf16_text.len() as c_int, 
+			ptr::null_mut(), ptr::null_mut());
+		if utf8_len == FALSE {
+			panic!("Character conversion failed: {}", kernel32::GetLastError());
+		}
+		
+		let mut bytes_written = 0;
+		
+		if kernel32::WriteFile(file, utf8_text as LPVOID, utf8_len as DWORD, 
+				&mut bytes_written, ptr::null_mut()) == FALSE {
+			panic!("Write failed: {}", kernel32::GetLastError());
+		}
+		
+		kernel32::CloseHandle(file);
 	}
 
 	unsafe fn clear_text(&mut self) {
