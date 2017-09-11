@@ -288,6 +288,9 @@ impl MainWindow {
 		if self.hwnd == ptr::null_mut() {
 			panic!("Couldn't create window: {:?}", kernel32::GetLastError());
 		};
+		
+		// FIXME: figure out why the title isn't properly set above, and remove this line
+		SendMessageW(self.hwnd, WM_SETTEXT, 0, window_title.as_ptr() as LPARAM);
 	}
 
 	fn populate_window(&mut self) {
