@@ -61,7 +61,7 @@ const TBB: [TBBUTTON; 3] = [
 #[derive(Debug)]
 pub struct MainWindow {
 	pub hwnd: HWND,
-	pub edit: Option<Edit>,
+	pub edit: Option<&'static mut Edit>,
 	pub toolbar: Option<Toolbar>,
 	pub status: Option<Statusbar>,
 	pub instance: HINSTANCE,
@@ -89,6 +89,7 @@ impl MainWindow {
 					
 					main_window.hwnd = hwnd;
 					
+					// FIXME: check for errors
 					SetWindowLongPtrW(hwnd, 0, main_window as *mut MainWindow as LONG_PTR);
 					
 					return TRUE as LRESULT; 
@@ -313,11 +314,16 @@ impl MainWindow {
 	}
 	
 	pub fn initialize(&mut self) {
-		self.hwnd = 0 as HWND;
-		self.edit = None;
-		self.toolbar = None;
-		self.status = None;
-		self.class_atom = 0;
+		unsafe {
+			// zero out our instance
+			ptr::write(&mut self.hwnd, 0 as HWND);
+			ptr::write(&mut self.edit, None);
+			ptr::write(&mut self.toolbar, None);
+			ptr::write(&mut self.status, None);
+			ptr::write(&mut self.class_atom, 0);
+			ptr::write(&mut self.instance, ptr::null_mut());
+		};
+		
 		self.instance = MainWindow::get_current_instance_handle();
 		
 		let class_name: Vec<u16> = util::convert_string("Rustpad");

@@ -16,6 +16,7 @@ use std::mem;
 use std::ptr;
 use user32::*;
 use winapi::*;
+use control::Edit;
 use main_window::MainWindow;
 
 const IDA_ACCEL_TABLE: i32 = 10000;
@@ -29,7 +30,15 @@ extern "system" {
     ) -> c_int;
 }
 
+fn get_current_instance_handle() -> HINSTANCE {
+	unsafe {
+		kernel32::GetModuleHandleW(ptr::null_mut())
+	}
+}
+
 fn main() {
+	Edit::register_class(get_current_instance_handle());
+
 	let (main_window_ptr, main_window) = unsafe {
 		let icc = INITCOMMONCONTROLSEX {
 			dwSize: mem::size_of::<INITCOMMONCONTROLSEX>() as u32,
