@@ -19,6 +19,9 @@ pub struct Edit {
 	pub font: HFONT,
 	pub font_height: i32,
 	pub font_width: i32,
+	
+	pub scroll_x: u32,
+	pub scroll_y: u32,
 }
 
 const EDIT_CLASS: &'static str = "R\0U\0S\0T\0P\0A\0D\0_\0E\0D\0I\0T\0\0\0";
@@ -37,6 +40,8 @@ impl Edit {
 					ptr::write(&mut edit.font, ptr::null_mut());
 					edit.font_height = 0;
 					edit.font_width = 0;
+					edit.scroll_x = 0;
+					edit.scroll_y = 0;
 					
 					edit.set_self();
 					
@@ -52,29 +57,13 @@ impl Edit {
 				},
 				WM_CREATE => {
 					let mut edit = Edit::get_self(hwnd);
-					println!("create {:?}", edit as *mut Edit as u64);
 					
 					let font = gdi32::GetStockObject(DEFAULT_GUI_FONT) as HFONT;
 					edit.set_font(font);
-					println!("create end");
 				},
 				WM_SIZE => {
-					//let mut main_window = MainWindow::get_main_window(hwnd);
-					
-					//main_window.resize();
-				},
-				WM_COMMAND => {
-					//let mut main_window = MainWindow::get_main_window(hwnd);
-					
-					//assert_eq!(hwnd, main_window.hwnd);
-					
-					//match LOWORD(w_param as u32) as i32 {
-					//	ID_FILE_EXIT => { PostMessageW(hwnd, WM_CLOSE, 0, 0); },
-					//	ID_FILE_NEW => main_window.clear_text(),
-					//	ID_FILE_OPEN => main_window.open_file(),
-					//	ID_FILE_SAVEAS => main_window.save_file(),
-					//	_ => (),
-					//};
+					let mut edit = Edit::get_self(hwnd);
+					edit.resize();
 				},
 				WM_SETFONT => {
 					let mut edit = Edit::get_self(hwnd);
@@ -82,10 +71,7 @@ impl Edit {
 				},
 				WM_PAINT => {
 					let mut edit = Edit::get_self(hwnd);
-					
-					println!("paint {:?}", edit as *mut Edit as u64);
 					edit.on_paint();
-					println!("paint end");
 				},
 				_ => { 
 					return user32::DefWindowProcW(hwnd, msg, w_param, l_param); 
@@ -174,16 +160,13 @@ impl Edit {
 		
 		let hwnd = unsafe {
 			let hwnd = user32::CreateWindowExW(WS_EX_CLIENTEDGE, EDIT_CLASS.as_ptr() as *const u16, blank.as_ptr(),
-				WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL,
+				WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_HSCROLL | ES_MULTILINE | ES_AUTOVSCROLL,
 				CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, 
 				parent, id, instance, ptr::null_mut());
 			
 			if hwnd == ptr::null_mut() {
 				panic!("Couldn't create edit {}", kernel32::GetLastError());
 			};
-			
-			//user32::SendMessageW(edit.hwnd, WM_SETFONT, font as WPARAM, 0);
-			//user32::SendMessageW(edit.hwnd, WM_SETTEXT, 0, blank.as_ptr() as LPARAM);
 			
 			hwnd
 		};
@@ -199,12 +182,12 @@ impl Edit {
 		
 		user32::BeginPaint(self.hwnd, &mut ps);
 		
-		let top_row = cmp::max(ps.rcPaint.top / self.font_height, 0) as usize;
-		let bottom_row = cmp::min(ps.rcPaint.bottom / self.font_height, self.lines.len() as _) as usize;
+		let top_row = self.scroll_y as usize + cmp::max(ps.rcPaint.top / self.font_height, 0) as usize;
+		let bottom_row = self.scroll_y as usize + cmp::min(1 + ps.rcPaint.bottom / self.font_height, self.lines.len() as _) as usize;
 		
 		for i in top_row..bottom_row {
 			self.paint_line(ps.hdc, i);
-		}
+		};
 		
 		user32::EndPaint(self.hwnd, &ps);
 	}
@@ -248,6 +231,44 @@ impl Edit {
 			text_buf[0..text_length].to_vec()
 		}
 	}
+	
+	fn set_scrollbars(&mut self) {
+		let rect = self.get_size();
+		let vert_page_size = rect.bottom / self.font_height;
+		let horiz_page_size = rect.right / self.font_width;
+		let max_line_len = self.lines.iter().map(|line| line.len()).max().unwrap_or(0);
+		
+		println!("rect.right {}", rect.right);
+		println!("page len {} {}", vert_page_size, horiz_page_size);
+		
+		unsafe {
+			let mut vert_si = mem::zeroed::<SCROLLINFO>();
+			vert_si.fMask = SIF_POS | SIF_PAGE | SIF_RANGE;
+			vert_si.nPos = 0;
+			vert_si.nPage = vert_page_size as u32;
+			vert_si.nMin = 0;
+			vert_si.nMax = self.lines.len() as i32;
+			
+			user32::SetScrollInfo(self.hwnd, SB_VERT, &vert_si, TRUE);
+			
+			let mut horiz_si = mem::zeroed::<SCROLLINFO>();
+			horiz_si.fMask = SIF_POS | SIF_PAGE | SIF_RANGE;
+			horiz_si.nPos = 0;
+			horiz_si.nPage = horiz_page_size as u32;
+			horiz_si.nMin = 0;
+			horiz_si.nMax = max_line_len as i32;
+			
+			user32::SetScrollInfo(self.hwnd, SB_HORZ, &horiz_si, TRUE);
+		};
+	}
+	
+	fn get_rect(&self) -> RECT {
+		unsafe {
+			let mut rect: RECT = mem::uninitialized();
+			user32::GetWindowRect(self.hwnd, &mut rect);
+			rect
+		}
+	}
 }
 
 impl Control for Edit {
@@ -256,14 +277,17 @@ impl Control for Edit {
 	}
 	
 	fn resize(&mut self) {
-		// TODO
+		self.set_scrollbars();
 	}
 	
 	fn get_size(&self) -> RECT {
-		unsafe {
-			let mut rect: RECT = mem::uninitialized();
-			user32::GetWindowRect(self.hwnd, &mut rect);
-			rect
-		}
+		let mut rect = self.get_rect();
+		
+		rect.bottom = rect.bottom - rect.top;
+		rect.right = rect.right - rect.left;
+		rect.top = 0;
+		rect.left = 0;
+		
+		rect
 	}
 }
